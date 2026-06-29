@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type {
 	AdminProductListItem,
+	AdminProductAccessEntry,
 	AdminProductRole,
 	AdminProductUser,
 	AdminProductUserRoleAssignment,
@@ -8,7 +9,7 @@ import type {
 	ClassKitClient,
 	ProductUserStatus,
 } from "@class-kit/react";
-import { Plus, ShieldCheck, UserCog } from "lucide-react";
+import { Check, MailPlus, Plus, ShieldCheck, UserCog, X } from "lucide-react";
 import { adminBadgeClass } from "./admin-badge";
 import { AdminDialog, AdminEmptyState, AdminPanelMessage } from "./admin-feedback";
 import { CopyableId } from "./copyable-id";
@@ -28,10 +29,12 @@ type RowSaveState = {
 
 export function ProductUsersPanel({ client, product, currentUserId, refreshKey = 0 }: ProductUsersPanelProps) {
 	const [users, setUsers] = useState<AdminProductUser[]>([]);
+	const [accessEntries, setAccessEntries] = useState<AdminProductAccessEntry[]>([]);
 	const [roles, setRoles] = useState<AdminProductRole[]>([]);
 	const [assignments, setAssignments] = useState<AdminProductUserRoleAssignment[]>([]);
 	const [selectedUser, setSelectedUser] = useState<AdminProductUser | null>(null);
 	const [isCreateOpen, setIsCreateOpen] = useState(false);
+	const [isInviteOpen, setIsInviteOpen] = useState(false);
 	const [createdUserId, setCreatedUserId] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [rowSaveState, setRowSaveState] = useState<Record<string, RowSaveState>>({});
@@ -40,6 +43,7 @@ export function ProductUsersPanel({ client, product, currentUserId, refreshKey =
 	const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
 
 	const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
+	const visibleAccessEntries = useMemo(() => accessEntries.filter((entry) => entry.status !== "active"), [accessEntries]);
 	const grantsByUser = useMemo<RoleGrantByUser>(() => {
 		const grouped: RoleGrantByUser = new Map();
 		for (const assignment of assignments) {
@@ -63,6 +67,7 @@ export function ProductUsersPanel({ client, product, currentUserId, refreshKey =
 				client.admin.productRoles.listUserRoles(product.product_key),
 			]);
 			setUsers(userData.users);
+			setAccessEntries(userData.access_entries);
 			setRoles(roleData.roles);
 			setAssignments(assignmentData.assignments);
 			return userData.users;
@@ -95,6 +100,7 @@ export function ProductUsersPanel({ client, product, currentUserId, refreshKey =
 			.then(([userData, roleData, assignmentData]) => {
 				if (!isCurrent) return;
 				setUsers(userData.users);
+				setAccessEntries(userData.access_entries);
 				setRoles(roleData.roles);
 				setAssignments(assignmentData.assignments);
 				setError(null);
@@ -165,6 +171,54 @@ export function ProductUsersPanel({ client, product, currentUserId, refreshKey =
 		}
 	}
 
+	async function approveAccess(entry: AdminProductAccessEntry) {
+		await saveAccessChange(entry, "approve");
+	}
+
+	async function rejectAccess(entry: AdminProductAccessEntry) {
+		await saveAccessChange(entry, "reject");
+	}
+
+	async function saveAccessChange(entry: AdminProductAccessEntry, action: "approve" | "reject") {
+		const stateKey = `access-${entry.id}`;
+		setMessage(null);
+		setError(null);
+		setRowSaveState((current) => ({
+			...current,
+			[stateKey]: { isSaving: true, error: null },
+		}));
+
+		try {
+			if (action === "approve") {
+				await client.admin.users.approveProductAccess({
+					productKey: product.product_key,
+					accessEntryId: entry.id,
+				});
+				setMessage("Product access approved.");
+			} else {
+				await client.admin.users.rejectProductAccess({
+					productKey: product.product_key,
+					accessEntryId: entry.id,
+				});
+				setMessage("Product access rejected.");
+			}
+
+			await loadUserManagement({ showLoading: false });
+			setRowSaveState((current) => ({
+				...current,
+				[stateKey]: { isSaving: false, error: null },
+			}));
+		} catch (caught) {
+			setRowSaveState((current) => ({
+				...current,
+				[stateKey]: {
+					isSaving: false,
+					error: caught instanceof Error ? caught.message : "Could not update product access.",
+				},
+			}));
+		}
+	}
+
 	return (
 		<section className="min-w-0 rounded-md border border-border bg-card p-4">
 			<div className="flex flex-col gap-3 border-b border-border pb-4 md:flex-row md:items-start md:justify-between">
@@ -177,6 +231,10 @@ export function ProductUsersPanel({ client, product, currentUserId, refreshKey =
 				<div className="flex flex-wrap items-center gap-2 md:justify-end">
 					<button type="button" className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md border border-border px-3 text-sm font-medium text-muted-foreground hover:border-primary hover:text-foreground disabled:opacity-60" onClick={() => void loadUserManagement()} disabled={isLoading}>
 						Refresh
+					</button>
+					<button type="button" className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border px-4 text-sm font-semibold hover:border-primary disabled:opacity-60" onClick={() => setIsInviteOpen(true)}>
+						<MailPlus className="size-4" aria-hidden="true" />
+						Invite user
 					</button>
 					<button type="button" className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60" onClick={() => setIsCreateOpen(true)}>
 						<Plus className="size-4" aria-hidden="true" />
@@ -197,8 +255,63 @@ export function ProductUsersPanel({ client, product, currentUserId, refreshKey =
 				</div>
 			) : null}
 
-			{!isLoading && !error && users.length === 0 ? (
-				<AdminEmptyState className="mt-4">No product users yet. Create a user to start managing access for this product.</AdminEmptyState>
+			{!isLoading && !error && users.length === 0 && visibleAccessEntries.length === 0 ? (
+				<AdminEmptyState className="mt-4">No product users or access requests yet.</AdminEmptyState>
+			) : null}
+
+			{!isLoading && !error && visibleAccessEntries.length > 0 ? (
+				<div className="mt-4 max-w-full overflow-x-auto">
+					<h3 className="mb-2 text-sm font-semibold">Access requests</h3>
+					<table className="w-full table-fixed border-collapse text-sm">
+						<thead>
+							<tr className="border-b border-border text-left">
+								<th className="w-[30%] py-2 pr-2 font-semibold lg:pr-3">Email</th>
+								<th className="w-[7rem] py-2 pr-2 font-semibold lg:pr-3">Status</th>
+								<th className="w-[7rem] py-2 pr-2 font-semibold lg:pr-3">Role</th>
+								<th className="w-[8rem] py-2 pr-2 font-semibold lg:pr-3">Source</th>
+								<th className="w-[7rem] py-2 pr-2 font-semibold lg:pr-3">User ID</th>
+								<th className="w-28 py-2 text-right font-semibold xl:w-44">Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							{visibleAccessEntries.map((entry) => {
+								const stateKey = `access-${entry.id}`;
+								const state = rowSaveState[stateKey] ?? { isSaving: false, error: null };
+								const canApprove = Boolean(entry.user_id) && entry.status !== "rejected" && entry.status !== "inactive";
+								return (
+									<tr key={entry.id} className="border-b border-border align-top last:border-0">
+										<td className="min-w-0 py-3 pr-2 lg:pr-3">
+											<p className="truncate font-medium" title={entry.email}>{entry.email}</p>
+										</td>
+										<td className="py-3 pr-2 lg:pr-3">
+											<span className={adminBadgeClass({ tone: entry.status === "invited" ? "active" : entry.status === "pending" ? "muted" : "neutral" })}>{entry.status}</span>
+										</td>
+										<td className="py-3 pr-2 lg:pr-3">{entry.role}</td>
+										<td className="py-3 pr-2 lg:pr-3">{entry.source === "admin_invite" ? "invite" : "request"}</td>
+										<td className="min-w-0 py-3 pr-2 lg:pr-3">
+											{entry.user_id ? <CopyableId value={entry.user_id} label="user ID" prefixLength={4} suffixLength={4} /> : <span className="admin-meta">Not signed in</span>}
+										</td>
+										<td className="py-3 text-right">
+											<div className="flex justify-end gap-2">
+												<button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-sm font-medium hover:border-primary disabled:opacity-60 xl:w-auto xl:px-3" onClick={() => void approveAccess(entry)} disabled={state.isSaving || !canApprove} aria-label="Approve access" title={entry.user_id ? "Approve access" : "User has not signed in yet"}>
+													<Check className="size-4" aria-hidden="true" />
+													<span className="hidden xl:inline">Approve</span>
+												</button>
+												<button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-sm font-medium hover:border-destructive disabled:opacity-60 xl:w-auto xl:px-3" onClick={() => void rejectAccess(entry)} disabled={state.isSaving || entry.status === "rejected"} aria-label="Reject access" title="Reject access">
+													<X className="size-4" aria-hidden="true" />
+													<span className="hidden xl:inline">Reject</span>
+												</button>
+											</div>
+											{!entry.user_id && entry.status === "invited" ? <p className="admin-meta mt-1 text-xs">Waiting for sign-in</p> : null}
+											{state.isSaving ? <p className="admin-meta mt-1 text-xs">Saving.</p> : null}
+											{state.error ? <p className="mt-2 text-left text-xs font-medium text-destructive">{state.error}</p> : null}
+										</td>
+									</tr>
+								);
+							})}
+						</tbody>
+					</table>
+				</div>
 			) : null}
 
 			{!isLoading && !error && users.length > 0 ? (
@@ -312,6 +425,18 @@ export function ProductUsersPanel({ client, product, currentUserId, refreshKey =
 				/>
 			) : null}
 
+			{isInviteOpen ? (
+				<InviteUserDialog
+					client={client}
+					product={product}
+					onClose={() => setIsInviteOpen(false)}
+					onInvited={async (assignedToProduct) => {
+						setMessage(assignedToProduct ? "Invited and assigned user." : "User invited.");
+						await loadUserManagement();
+					}}
+				/>
+			) : null}
+
 			{selectedUser ? (
 				<RoleGrantDialog
 					client={client}
@@ -410,6 +535,67 @@ function CreateUserDialog({
 					</button>
 					<button type="submit" className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60" disabled={isSubmitting}>
 						{isSubmitting ? "Creating user" : "Create and assign"}
+					</button>
+				</div>
+			</form>
+		</AdminDialog>
+	);
+}
+
+function InviteUserDialog({
+	client,
+	product,
+	onClose,
+	onInvited,
+}: {
+	client: ClassKitClient;
+	product: AdminProductListItem;
+	onClose: () => void;
+	onInvited: (assignedToProduct: boolean) => Promise<void>;
+}) {
+	const [email, setEmail] = useState("");
+	const [role, setRole] = useState<BuiltInProductRole>("user");
+	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setIsSubmitting(true);
+		setError(null);
+
+		try {
+			const result = await client.admin.users.inviteProductUser({
+				productKey: product.product_key,
+				email,
+				role,
+			});
+			await onInvited(Boolean(result.product_user));
+			onClose();
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not invite user.");
+		} finally {
+			setIsSubmitting(false);
+		}
+	}
+
+	return (
+		<AdminDialog title="Invite user" onClose={onClose}>
+			<form className="grid gap-3" onSubmit={handleSubmit}>
+				<TextField label="Email" value={email} onChange={setEmail} type="email" required autoFocus disabled={isSubmitting} />
+				<label className="grid gap-1 text-sm">
+					<span className="font-medium">Product role</span>
+					<select className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60" value={role} onChange={(event) => setRole(event.target.value as BuiltInProductRole)} disabled={isSubmitting}>
+						<option value="user">user</option>
+						<option value="manager">manager</option>
+					</select>
+				</label>
+				<AdminPanelMessage message={null} error={error} />
+				<div className="mt-1 flex flex-wrap justify-end gap-2 border-t border-border pt-3">
+					<button type="button" className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-md border border-border px-4 text-sm font-medium text-muted-foreground hover:border-primary hover:text-foreground disabled:opacity-60" onClick={onClose} disabled={isSubmitting}>
+						Cancel
+					</button>
+					<button type="submit" className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60" disabled={isSubmitting}>
+						{isSubmitting ? "Inviting user" : "Invite user"}
 					</button>
 				</div>
 			</form>
