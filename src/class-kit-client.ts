@@ -11,5 +11,4 @@ export const classKitClient = createClassKitClient({
 	supabaseUrl: supabaseTarget === "remote" ? remoteSupabaseUrl : localSupabaseUrl,
 	supabasePublishableKey: supabaseTarget === "remote" ? remoteSupabasePublishableKey : localSupabasePublishableKey,
 	authStorageKey: "class-kit-demo-auth",
-	authRedirectUrl: import.meta.env.VITE_AUTH_REDIRECT_URL || undefined,
 });

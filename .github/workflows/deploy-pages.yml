@@ -23,7 +23,6 @@ jobs:
       VITE_SUPABASE_TARGET: remote
       VITE_REMOTE_SUPABASE_URL: https://xhkymcpkvekuvoxiucoe.supabase.co
       VITE_REMOTE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_jy5FhtJQh4mHLDrRMJ-JgQ_RxHSF1wm
-      VITE_AUTH_REDIRECT_URL: https://khgs2411.github.io/class-kit-admin/
     steps:
       - name: Checkout
         uses: actions/checkout@v5
