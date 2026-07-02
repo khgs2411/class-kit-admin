@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type { AdminProductListItem } from "@class-kit/react";
 import { CheckCircle2, Circle, CircleSlash2, Globe2, KeyRound, Plus, ShieldCheck } from "lucide-react";
-import { classKitClient } from "./class-kit-client";
+import { classKitClient, supabaseTarget } from "./class-kit-client";
 import type { AdminBoardStatus, SelectedAdminProduct } from "./admin-types";
 import { AdminAuthPanel } from "./components/admin-auth-panel";
 import { ProductAuthPolicyPanel } from "./components/product-auth-policy-panel";
@@ -29,7 +29,7 @@ export function App() {
 	const loadProducts = useCallback(async () => {
 		if (!classKitClient) {
 			setStatus("error");
-			setError("Class Kit client is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.");
+			setError("Class Kit client is not configured. Check VITE_CLASS_KIT_TARGET and local ClassKit Supabase values.");
 			return;
 		}
 
@@ -57,7 +57,7 @@ export function App() {
 		if (!classKitClient) {
 			setSession(null);
 			setStatus("error");
-			setError("Class Kit client is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.");
+			setError("Class Kit client is not configured. Check VITE_CLASS_KIT_TARGET and local ClassKit Supabase values.");
 			return;
 		}
 
@@ -83,7 +83,7 @@ export function App() {
 				if (!isCurrent) return;
 				setSession(null);
 				setStatus("error");
-				setError("Class Kit client is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.");
+				setError("Class Kit client is not configured. Check VITE_CLASS_KIT_TARGET and local ClassKit Supabase values.");
 				return;
 			}
 
@@ -124,7 +124,7 @@ export function App() {
 					</div>
 				</header>
 
-				<AdminAuthPanel client={classKitClient} session={session} error={status === "error" || status === "forbidden" ? error : null} onSignedIn={refreshSessionAndProducts} />
+				<AdminAuthPanel client={classKitClient} session={session} error={status === "error" || status === "forbidden" ? error : null} supabaseTarget={supabaseTarget} onSignedIn={refreshSessionAndProducts} />
 
 				{status === "signed_out" ? <StatusPanel title="Signed out" message="Sign in to load platform products." /> : null}
 				{status === "loading" ? <StatusPanel title="Loading" message="Checking session and product access." /> : null}

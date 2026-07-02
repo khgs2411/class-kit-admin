@@ -1,18 +1,45 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type { ClassKitClient } from "@class-kit/react";
-import { KeyRound, LogOut } from "lucide-react";
+import { KeyRound, Lock, LogIn, LogOut, Mail } from "lucide-react";
+import type { SupabaseTarget } from "../class-kit-client";
 
 type AdminAuthPanelProps = {
 	client: ClassKitClient | null;
 	session: Session | null;
 	error: string | null;
+	supabaseTarget: SupabaseTarget;
 	onSignedIn: () => Promise<void>;
 };
 
-export function AdminAuthPanel({ client, session, error, onSignedIn }: AdminAuthPanelProps) {
+export function AdminAuthPanel({ client, session, error, supabaseTarget, onSignedIn }: AdminAuthPanelProps) {
+	const [email, setEmail] = useState("");
+	const [password, setPassword] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [localError, setLocalError] = useState<string | null>(null);
+	const isLocalTarget = supabaseTarget === "local";
+
+	async function handlePasswordSignIn(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		if (!client) {
+			setLocalError("Class Kit client is not configured.");
+			return;
+		}
+
+		setIsSubmitting(true);
+		setLocalError(null);
+		try {
+			const result = await client.auth.signIn(email, password);
+			if (result.error) {
+				setLocalError(result.error);
+				return;
+			}
+
+			await onSignedIn();
+		} finally {
+			setIsSubmitting(false);
+		}
+	}
 
 	async function handleGoogleSignIn() {
 		if (!client) {
@@ -45,7 +72,11 @@ export function AdminAuthPanel({ client, session, error, onSignedIn }: AdminAuth
 				<div>
 					<h2 className="text-sm font-semibold">Admin access</h2>
 					<p className="admin-meta mt-1 truncate">
-						{session ? session.user.email ?? "Signed in" : "Sign in with your platform admin Google account."}
+						{session
+							? session.user.email ?? "Signed in"
+							: isLocalTarget
+								? "Sign in with your local platform admin account."
+								: "Sign in with your platform admin Google account."}
 					</p>
 				</div>
 				{session ? (
@@ -58,6 +89,49 @@ export function AdminAuthPanel({ client, session, error, onSignedIn }: AdminAuth
 						<LogOut className="size-4" aria-hidden="true" />
 						Sign out
 					</button>
+				) : isLocalTarget ? (
+					<form className="grid gap-2 md:min-w-[24rem]" onSubmit={(event) => void handlePasswordSignIn(event)}>
+						<div className="grid gap-2 sm:grid-cols-2">
+							<label className="grid gap-1 text-xs font-semibold text-muted-foreground">
+								<span>Email</span>
+								<span className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3">
+									<Mail className="size-4 shrink-0" aria-hidden="true" />
+									<input
+										className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
+										type="email"
+										value={email}
+										autoComplete="email"
+										onChange={(event) => setEmail(event.target.value)}
+										required
+										disabled={isSubmitting || !client}
+									/>
+								</span>
+							</label>
+							<label className="grid gap-1 text-xs font-semibold text-muted-foreground">
+								<span>Password</span>
+								<span className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3">
+									<Lock className="size-4 shrink-0" aria-hidden="true" />
+									<input
+										className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
+										type="password"
+										value={password}
+										autoComplete="current-password"
+										onChange={(event) => setPassword(event.target.value)}
+										required
+										disabled={isSubmitting || !client}
+									/>
+								</span>
+							</label>
+						</div>
+						<button
+							type="submit"
+							className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+							disabled={isSubmitting || !client}
+						>
+							<LogIn className="size-4" aria-hidden="true" />
+							{isSubmitting ? "Signing in" : "Sign in"}
+						</button>
+					</form>
 				) : (
 					<div className="flex flex-wrap gap-2 md:justify-end">
 						<button
