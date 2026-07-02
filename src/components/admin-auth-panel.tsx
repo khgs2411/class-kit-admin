@@ -12,6 +12,45 @@ type AdminAuthPanelProps = {
 	onSignedIn: () => Promise<void>;
 };
 
+type PlatformAppAuthRedirect = {
+	provider: "google" | "apple";
+	environment: "development" | "production";
+	redirect_url: string;
+	is_default: boolean;
+};
+
+type PlatformAppContextResponse = {
+	app: {
+		auth_redirects: PlatformAppAuthRedirect[];
+	};
+};
+
+type ApiResponse<T> =
+	| { data: T; error: null }
+	| { data: null; error: { message: string } };
+
+function getBrowserEnvironment(): PlatformAppAuthRedirect["environment"] {
+	const hostname = window.location.hostname;
+	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" ? "development" : "production";
+}
+
+function getClassKitSiteHeaders(): Record<string, string> {
+	const url = new URL(window.location.href);
+	url.hash = "";
+	url.search = "";
+	return { "x-class-kit-site-url": url.pathname === "/" ? url.origin : url.href };
+}
+
+function getDefaultGoogleRedirect(context: PlatformAppContextResponse): string | null {
+	const redirects = context.app.auth_redirects.filter((redirect) => redirect.provider === "google");
+	const environmentRedirects = redirects.filter((redirect) => redirect.environment === getBrowserEnvironment());
+	return environmentRedirects.find((redirect) => redirect.is_default)?.redirect_url ??
+		environmentRedirects[0]?.redirect_url ??
+		redirects.find((redirect) => redirect.is_default)?.redirect_url ??
+		redirects[0]?.redirect_url ??
+		null;
+}
+
 export function AdminAuthPanel({ client, session, error, supabaseTarget, onSignedIn }: AdminAuthPanelProps) {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
@@ -49,9 +88,24 @@ export function AdminAuthPanel({ client, session, error, supabaseTarget, onSigne
 
 		setIsSubmitting(true);
 		setLocalError(null);
-		const result = await client.auth.signInWithGoogle();
-		if (result.error) {
-			setLocalError(result.error);
+		const { data: context, error: contextError } = await client.supabase.functions.invoke<ApiResponse<PlatformAppContextResponse>>(
+			"class-kit-platform-app-context",
+			{ body: { app_key: "class-kit-admin" }, headers: getClassKitSiteHeaders() },
+		);
+		const redirectTo = context?.data ? getDefaultGoogleRedirect(context.data) : null;
+
+		if (contextError || context?.error || !redirectTo) {
+			setLocalError(context?.error?.message ?? contextError?.message ?? "Google OAuth redirect is not configured for class-kit-admin.");
+			setIsSubmitting(false);
+			return;
+		}
+
+		const { error } = await client.supabase.auth.signInWithOAuth({
+			provider: "google",
+			options: { redirectTo },
+		});
+		if (error) {
+			setLocalError(error.message);
 			setIsSubmitting(false);
 		}
 	}
