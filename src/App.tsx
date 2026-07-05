@@ -11,6 +11,7 @@ import { ProductCreateForm } from "./components/product-create-form";
 import { ProductList } from "./components/product-list";
 import { ProductRolePanel } from "./components/product-role-panel";
 import { ProductOriginPanel } from "./components/product-origin-panel";
+import { ProductResetPanel } from "./components/product-reset-panel";
 import { ProductUsersPanel } from "./components/product-users-panel";
 import { adminBadgeClass } from "./components/admin-badge";
 
@@ -252,6 +253,7 @@ function SelectedProductDetail({
 							<ProductOriginPanel client={client} product={product} onChanged={handleChanged} />
 							<ProductAuthRedirectPanel client={client} product={product} onChanged={handleChanged} />
 							<ProductAuthPolicyPanel client={client} product={product} onChanged={handleChanged} />
+							<ProductResetPanel client={client} product={product} onChanged={handleChanged} />
 						</div>
 					) : null}
 
