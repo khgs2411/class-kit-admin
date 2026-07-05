@@ -20,32 +20,31 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VITE_BASE_PATH: /class-kit-admin/
-      VITE_SUPABASE_TARGET: remote
-      VITE_REMOTE_SUPABASE_URL: https://xhkymcpkvekuvoxiucoe.supabase.co
-      VITE_REMOTE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_jy5FhtJQh4mHLDrRMJ-JgQ_RxHSF1wm
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Configure SDK deploy key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.CLASS_KIT_SDK_DEPLOY_KEY }}" > ~/.ssh/class_kit_sdk
-          chmod 600 ~/.ssh/class_kit_sdk
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-          git config --global core.sshCommand "ssh -i ~/.ssh/class_kit_sdk -o IdentitiesOnly=yes"
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
-          cache: npm
+          bun-version: latest
+
+      - name: Configure SSH for private dependencies
+        env:
+          CLASS_KIT_SDK_DEPLOY_KEY: ${{ secrets.CLASS_KIT_SDK_DEPLOY_KEY }}
+        run: |
+          test -n "$CLASS_KIT_SDK_DEPLOY_KEY" || { echo "CLASS_KIT_SDK_DEPLOY_KEY secret is not set"; exit 1; }
+          mkdir -p ~/.ssh
+          printf '%s\n' "$CLASS_KIT_SDK_DEPLOY_KEY" > ~/.ssh/class_kit_sdk
+          chmod 600 ~/.ssh/class_kit_sdk
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git config --global core.sshCommand "ssh -i ~/.ssh/class_kit_sdk -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
 
       - name: Install dependencies
-        run: npm install
+        run: bun install --frozen-lockfile
 
       - name: Build
-        run: npm run build
+        run: bun run build
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

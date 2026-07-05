@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@class-kit/react": "git+ssh://git@github.com/khgs2411/class-kit-sdk.git#v0.1.12",
+    "@class-kit/react": "git@github.com:khgs2411/class-kit-sdk.git#v0.1.14",
     "@supabase/supabase-js": "^2.106.1",
     "@tailwindcss/vite": "^4.3.0",
     "@vitejs/plugin-react": "^6.0.1",
