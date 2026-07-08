@@ -34,7 +34,7 @@ import { adminBadgeClass } from "./components/admin-badge";
 import { AdminEmptyState } from "./components/admin-feedback";
 
 type ProductSection = "overview" | "settings" | "roles" | "users" | "requests" | "deployments";
-type PlatformSection = "products" | "global-settings" | "integrations" | "audit";
+type PlatformSection = "products" | "integrations" | "audit";
 type ThemeMode = "light" | "dark";
 
 function isForbiddenError(message: string) {
@@ -147,8 +147,8 @@ export function App() {
 	}
 
 	return (
-		<main className="min-h-screen min-w-[1280px] bg-background text-foreground">
-			<div className="grid min-h-screen grid-rows-[4.25rem_minmax(0,1fr)]">
+		<main className="h-screen min-w-[1280px] overflow-hidden bg-background text-foreground">
+			<div className="grid h-full grid-rows-[4.25rem_minmax(0,1fr)]">
 				<TopBar
 					products={products}
 					selectedProduct={selectedProduct}
@@ -157,7 +157,7 @@ export function App() {
 					onToggleTheme={() => setTheme((current) => current === "dark" ? "light" : "dark")}
 				/>
 
-				<div className="grid min-h-0 grid-cols-[15rem_17rem_minmax(0,1fr)_19rem]">
+				<div className="grid min-h-0 grid-cols-[15rem_17rem_minmax(0,1fr)_19rem] overflow-hidden">
 					<PlatformSidebar
 						activeSection={platformSection}
 						onCreateProduct={() => setCreateOpen(true)}
@@ -177,33 +177,39 @@ export function App() {
 						}}
 					/>
 
-					<section className="min-w-0 overflow-auto border-r border-border">
-						<div className="mx-auto grid max-w-[64rem] gap-4 p-5">
+					<section className="min-w-0 overflow-hidden border-r border-border">
+						<div className="mx-auto grid h-full max-w-[64rem] grid-rows-[auto_minmax(0,1fr)] gap-4 p-5">
 							<AdminAuthPanel client={classKitClient} session={session} error={status === "error" || status === "forbidden" ? error : null} supabaseTarget={supabaseTarget} onSignedIn={refreshSessionAndProducts} />
 
-							{status === "signed_out" ? <StatusPanel title="Signed out" message="Sign in to load platform products." /> : null}
-							{status === "loading" ? <StatusPanel title="Loading" message="Checking session and product access." /> : null}
-							{status === "forbidden" ? <StatusPanel title="Platform admin required" message={error ?? "This account cannot list platform products."} tone="error" /> : null}
-							{status === "error" ? <StatusPanel title="Admin board unavailable" message={error ?? "The admin board could not load."} tone="error" /> : null}
+							<div className="min-h-0 overflow-hidden">
+								{status === "signed_out" ? <StatusPanel title="Signed out" message="Sign in to load platform products." /> : null}
+								{status === "loading" ? <StatusPanel title="Loading" message="Checking session and product access." /> : null}
+								{status === "forbidden" ? <StatusPanel title="Platform admin required" message={error ?? "This account cannot list platform products."} tone="error" /> : null}
+								{status === "error" ? <StatusPanel title="Admin board unavailable" message={error ?? "The admin board could not load."} tone="error" /> : null}
 
-							{status === "ready" && classKitClient ? (
-								platformSection === "integrations" || platformSection === "global-settings" ? (
-									<GlobalIntegrationsPanel client={classKitClient} productKey={selectedProduct?.product_key ?? null} />
-								) : platformSection === "audit" ? (
-									<AuditPlaceholder />
-								) : (
-									<SelectedProductWorkspace
-										client={classKitClient}
-										currentUserId={session?.user.id ?? null}
-										onChanged={loadProducts}
-										onOpenCreateProduct={() => setCreateOpen(true)}
-										onOpenProductSection={openProductSection}
-										product={selectedProduct}
-										productSection={productSection}
-										setProductSection={setProductSection}
-									/>
-								)
-							) : null}
+								{status === "ready" && classKitClient ? (
+									platformSection === "integrations" ? (
+										<div className="h-full overflow-auto">
+											<GlobalIntegrationsPanel client={classKitClient} productKey={selectedProduct?.product_key ?? null} />
+										</div>
+									) : platformSection === "audit" ? (
+										<div className="h-full overflow-auto">
+											<AuditPlaceholder />
+										</div>
+									) : (
+										<SelectedProductWorkspace
+											client={classKitClient}
+											currentUserId={session?.user.id ?? null}
+											onChanged={loadProducts}
+											onOpenCreateProduct={() => setCreateOpen(true)}
+											onOpenProductSection={openProductSection}
+											product={selectedProduct}
+											productSection={productSection}
+											setProductSection={setProductSection}
+										/>
+									)
+								) : null}
+							</div>
 						</div>
 					</section>
 
@@ -299,7 +305,6 @@ function PlatformSidebar({
 				</button>
 				<nav className="grid gap-1">
 					<NavButton icon={<Archive />} label="Products" active={activeSection === "products"} onClick={() => onSelectSection("products")} />
-					<NavButton icon={<Settings2 />} label="Global Settings" active={activeSection === "global-settings"} onClick={() => onSelectSection("global-settings")} />
 					<NavButton icon={<Wrench />} label="Integrations" active={activeSection === "integrations"} onClick={() => onSelectSection("integrations")} />
 					<NavButton icon={<Activity />} label="Audit Log" active={activeSection === "audit"} onClick={() => onSelectSection("audit")} />
 				</nav>
@@ -401,36 +406,38 @@ function SelectedProductWorkspace({
 	}
 
 	return (
-		<div className="grid gap-4">
+		<div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4">
 			<ProductHeader product={product} activeSection={productSection} onSelectSection={setProductSection} />
 
-			{productSection === "overview" ? (
-				<ProductOverview
-					product={product}
-					onOpenRequests={() => onOpenProductSection("requests")}
-					onOpenSettings={() => setProductSection("settings")}
-					onOpenUsers={() => setProductSection("users")}
-				/>
-			) : null}
+			<div className="min-h-0 overflow-auto pr-1">
+				{productSection === "overview" ? (
+					<ProductOverview
+						product={product}
+						onOpenRequests={() => onOpenProductSection("requests")}
+						onOpenSettings={() => setProductSection("settings")}
+						onOpenUsers={() => setProductSection("users")}
+					/>
+				) : null}
 
-			{productSection === "settings" ? (
-				<div className="class-kit-demo-workflows grid gap-4">
-					<ProductOriginPanel client={client} product={product} onChanged={handleChanged} />
-					<ProductAuthRedirectPanel client={client} product={product} onChanged={handleChanged} />
-					<ProductAuthPolicyPanel client={client} product={product} onChanged={handleChanged} />
-					<ProductResetPanel client={client} product={product} onChanged={handleChanged} />
-				</div>
-			) : null}
+				{productSection === "settings" ? (
+					<div className="class-kit-demo-workflows grid gap-4">
+						<ProductOriginPanel client={client} product={product} onChanged={handleChanged} />
+						<ProductAuthRedirectPanel client={client} product={product} onChanged={handleChanged} />
+						<ProductAuthPolicyPanel client={client} product={product} onChanged={handleChanged} />
+						<ProductResetPanel client={client} product={product} onChanged={handleChanged} />
+					</div>
+				) : null}
 
-			{productSection === "roles" ? <ProductRolePanel client={client} product={product} /> : null}
+				{productSection === "roles" ? <ProductRolePanel client={client} product={product} /> : null}
 
-			{productSection === "users" ? (
-				<ProductUsersPanel client={client} product={product} currentUserId={currentUserId} refreshKey={refreshKey} />
-			) : null}
+				{productSection === "users" ? (
+					<ProductUsersPanel client={client} product={product} currentUserId={currentUserId} refreshKey={refreshKey} />
+				) : null}
 
-			{productSection === "requests" ? <ProductChangeRequestsPanel client={client} product={product} /> : null}
+				{productSection === "requests" ? <ProductChangeRequestsPanel client={client} product={product} /> : null}
 
-			{productSection === "deployments" ? <DeploymentsPlaceholder product={product} /> : null}
+				{productSection === "deployments" ? <DeploymentsPlaceholder product={product} /> : null}
+			</div>
 		</div>
 	);
 }
