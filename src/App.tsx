@@ -8,6 +8,7 @@ import { AdminAuthPanel } from "./components/admin-auth-panel";
 import { ProductAuthPolicyPanel } from "./components/product-auth-policy-panel";
 import { ProductAuthRedirectPanel } from "./components/product-auth-redirect-panel";
 import { ProductCreateForm } from "./components/product-create-form";
+import { ProductChangeRequestsPanel } from "./components/product-change-requests-panel";
 import { ProductList } from "./components/product-list";
 import { ProductRolePanel } from "./components/product-role-panel";
 import { ProductOriginPanel } from "./components/product-origin-panel";
@@ -195,7 +196,7 @@ function SelectedProductDetail({
 	currentUserId: string | null;
 	onChanged: () => Promise<void>;
 }) {
-	const [activeSection, setActiveSection] = useState<"settings" | "roles" | "users">("settings");
+	const [activeSection, setActiveSection] = useState<"settings" | "roles" | "users" | "requests">("settings");
 	const [refreshKey, setRefreshKey] = useState(0);
 
 	if (!product) {
@@ -227,11 +228,12 @@ function SelectedProductDetail({
 					<div className="grid min-w-0 gap-3 md:justify-items-end">
 						<div className="flex min-w-0 flex-col gap-2 md:items-end">
 							<p className="admin-label truncate">Current task</p>
-							<h3 className="admin-panel-title">{activeSection === "users" ? "User management" : activeSection === "roles" ? "Roles & permissions" : "Product settings"}</h3>
+							<h3 className="admin-panel-title">{formatActiveSection(activeSection)}</h3>
 							<div className="flex flex-wrap gap-2 rounded-md bg-background p-1">
 								<SectionButton isActive={activeSection === "settings"} onClick={() => setActiveSection("settings")}>Settings</SectionButton>
 								<SectionButton isActive={activeSection === "roles"} onClick={() => setActiveSection("roles")}>Roles & permissions</SectionButton>
 								<SectionButton isActive={activeSection === "users"} onClick={() => setActiveSection("users")}>Users</SectionButton>
+								<SectionButton isActive={activeSection === "requests"} onClick={() => setActiveSection("requests")}>Requests</SectionButton>
 							</div>
 						</div>
 					</div>
@@ -262,10 +264,19 @@ function SelectedProductDetail({
 					{activeSection === "users" ? (
 						<ProductUsersPanel client={client} product={product} currentUserId={currentUserId} refreshKey={refreshKey} />
 					) : null}
+
+					{activeSection === "requests" ? <ProductChangeRequestsPanel client={client} product={product} /> : null}
 				</div>
 			</section>
 		</div>
 	);
+}
+
+function formatActiveSection(section: "settings" | "roles" | "users" | "requests") {
+	if (section === "users") return "User management";
+	if (section === "roles") return "Roles & permissions";
+	if (section === "requests") return "Product requests";
+	return "Product settings";
 }
 
 function SectionButton({ isActive, onClick, children }: { isActive: boolean; onClick: () => void; children: ReactNode }) {
