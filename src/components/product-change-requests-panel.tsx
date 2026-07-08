@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+	AdminPmIntegrationConfig,
+	AdminProductChangeRequestPmLink,
 	AdminProductChangeRequest,
 	AdminProductChangeRequestAttachment,
 	AdminProductChangeRequestStatus,
 	AdminProductListItem,
 	ClassKitClient,
 } from "@class-kit/react";
-import { Clock3, Download, Eye, ImageIcon, Paperclip, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Clock3, Download, ExternalLink, Eye, ImageIcon, Paperclip, RefreshCw, Search, Send, Trash2, X } from "lucide-react";
 import { adminBadgeClass } from "./admin-badge";
 import { AdminEmptyState, AdminPanelMessage } from "./admin-feedback";
 
@@ -32,6 +34,9 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 	const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
 	const [pendingAttachmentId, setPendingAttachmentId] = useState<string | null>(null);
 	const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState<Record<string, string>>({});
+	const [pmConfig, setPmConfig] = useState<AdminPmIntegrationConfig | null>(null);
+	const [pmLinks, setPmLinks] = useState<AdminProductChangeRequestPmLink[]>([]);
+	const [pendingPmAction, setPendingPmAction] = useState<string | null>(null);
 	const [message, setMessage] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +51,8 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 	const selectedRequest = filteredRequests.find((request) => request.id === selectedRequestId) ?? filteredRequests[0] ?? null;
 	const selectedRevisions = selectedRequest ? getRequestRevisions(selectedRequest) : [];
 	const selectedRevision = selectedRevisions.find((revision) => revision.id === selectedRevisionId) ?? selectedRevisions[selectedRevisions.length - 1] ?? null;
+	const pmLinksByThreadId = useMemo(() => new Map(pmLinks.map((link) => [link.request_thread_id, link])), [pmLinks]);
+	const selectedPmLink = selectedRequest ? pmLinksByThreadId.get(selectedRequest.thread_id) ?? null : null;
 	const openCount = sortedRequests.filter((request) => request.status === "open").length;
 	const attachmentCount = sortedRequests.reduce((total, request) => total + getRequestRevisions(request).reduce((count, revision) => count + revision.attachments.length, 0), 0);
 
@@ -85,6 +92,34 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 		}
 	}, [client, loadAttachmentPreviews, product.product_key]);
 
+	const syncPmLinks = useCallback(async (options: { silent?: boolean } = {}) => {
+		if (!pmConfig?.enabled) return;
+		if (!options.silent) setPendingPmAction("sync-all");
+		if (!options.silent) setError(null);
+
+		try {
+			const data = await client.admin.pmIntegrations.syncLinkedWorkItems({ productKey: product.product_key });
+			setPmLinks(data.links);
+			if (!options.silent) {
+				setMessage(data.summary.failed > 0 ? `Synced ${data.summary.synced} Trello card${data.summary.synced === 1 ? "" : "s"}; ${data.summary.failed} failed.` : "Trello statuses synced.");
+				await loadRequests({ showLoading: false });
+			}
+		} catch (caught) {
+			if (!options.silent) setError(caught instanceof Error ? caught.message : "Could not sync Trello cards.");
+		} finally {
+			if (!options.silent) setPendingPmAction(null);
+		}
+	}, [client, loadRequests, pmConfig?.enabled, product.product_key]);
+
+	const loadPmConfig = useCallback(async () => {
+		try {
+			const data = await client.admin.pmIntegrations.getConfig();
+			setPmConfig(data.config);
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not load Trello integration config.");
+		}
+	}, [client]);
+
 	useEffect(() => {
 		let isCurrent = true;
 		client.admin.changeRequests.list({ productKey: product.product_key })
@@ -106,6 +141,19 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 			isCurrent = false;
 		};
 	}, [client, loadAttachmentPreviews, product.product_key]);
+
+	useEffect(() => {
+		void loadPmConfig();
+	}, [loadPmConfig]);
+
+	useEffect(() => {
+		if (!pmConfig?.enabled) return;
+		void syncPmLinks({ silent: true });
+		const interval = window.setInterval(() => {
+			void syncPmLinks({ silent: true });
+		}, 30_000);
+		return () => window.clearInterval(interval);
+	}, [pmConfig?.enabled, syncPmLinks]);
 
 	useEffect(() => {
 		if (!selectedRequest) {
@@ -131,6 +179,40 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 			setError(caught instanceof Error ? caught.message : "Could not update request status.");
 		} finally {
 			setPendingRequestId(null);
+		}
+	}
+
+	async function createPmWorkItem(request: AdminProductChangeRequest) {
+		setPendingPmAction(`create-${request.id}`);
+		setMessage(null);
+		setError(null);
+
+		try {
+			const data = await client.admin.pmIntegrations.createWorkItem({ requestId: request.id });
+			setPmLinks((links) => replacePmLink(links, data.link));
+			const warningText = data.warnings.length > 0 ? ` ${data.warnings.length} attachment warning${data.warnings.length === 1 ? "" : "s"}.` : "";
+			setMessage(`Trello card created.${warningText}`);
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not create Trello card.");
+		} finally {
+			setPendingPmAction(null);
+		}
+	}
+
+	async function syncPmWorkItem(link: AdminProductChangeRequestPmLink) {
+		setPendingPmAction(`sync-${link.id}`);
+		setMessage(null);
+		setError(null);
+
+		try {
+			const data = await client.admin.pmIntegrations.syncWorkItem({ pmLinkId: link.id });
+			setPmLinks((links) => replacePmLink(links, data.link));
+			setMessage("Trello card synced.");
+			await loadRequests({ showLoading: false });
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not sync Trello card.");
+		} finally {
+			setPendingPmAction(null);
 		}
 	}
 
@@ -238,8 +320,13 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 					/>
 
 					<RequestDetail
+						pmConfig={pmConfig}
+						pmLink={selectedPmLink}
+						onCreatePmWorkItem={createPmWorkItem}
 						onDelete={deleteRequest}
+						onSyncPmWorkItem={syncPmWorkItem}
 						onUpdateStatus={updateStatus}
+						pendingPmAction={pendingPmAction}
 						pendingRequestId={pendingRequestId}
 						request={selectedRequest}
 						revision={selectedRevision}
@@ -315,14 +402,24 @@ function RequestInbox({
 }
 
 function RequestDetail({
+	pmConfig,
+	pmLink,
+	onCreatePmWorkItem,
 	onDelete,
+	onSyncPmWorkItem,
 	onUpdateStatus,
+	pendingPmAction,
 	pendingRequestId,
 	request,
 	revision,
 }: {
+	pmConfig: AdminPmIntegrationConfig | null;
+	pmLink: AdminProductChangeRequestPmLink | null;
+	onCreatePmWorkItem: (request: AdminProductChangeRequest) => Promise<void>;
 	onDelete: (request: AdminProductChangeRequest) => Promise<void>;
+	onSyncPmWorkItem: (link: AdminProductChangeRequestPmLink) => Promise<void>;
 	onUpdateStatus: (request: AdminProductChangeRequest, status: AdminProductChangeRequestStatus) => Promise<void>;
+	pendingPmAction: string | null;
 	pendingRequestId: string | null;
 	request: AdminProductChangeRequest | null;
 	revision: AdminProductChangeRequestRevision | null;
@@ -387,6 +484,87 @@ function RequestDetail({
 					<p className="admin-meta mt-1">This is version {revision.version_number}. Use the version panel to compare older request text and attachments.</p>
 				</div>
 			) : null}
+
+			<TrelloWorkItemPanel
+				config={pmConfig}
+				link={pmLink}
+				onCreate={() => void onCreatePmWorkItem(request)}
+				onSync={() => pmLink ? void onSyncPmWorkItem(pmLink) : undefined}
+				isCreating={pendingPmAction === `create-${request.id}`}
+				isSyncing={pmLink ? pendingPmAction === `sync-${pmLink.id}` : false}
+			/>
+		</div>
+	);
+}
+
+function TrelloWorkItemPanel({
+	config,
+	isCreating,
+	isSyncing,
+	link,
+	onCreate,
+	onSync,
+}: {
+	config: AdminPmIntegrationConfig | null;
+	isCreating: boolean;
+	isSyncing: boolean;
+	link: AdminProductChangeRequestPmLink | null;
+	onCreate: () => void;
+	onSync: () => void;
+}) {
+	return (
+		<div className="grid gap-3 rounded-md border border-border bg-background p-4">
+			<div className="flex min-w-0 items-center justify-between gap-3">
+				<div className="min-w-0">
+					<p className="admin-label">Trello card</p>
+					<p className="admin-meta mt-1">{link ? "Linked to product management software." : "Create a Trello card when this request is ready for work."}</p>
+				</div>
+				{link ? <span className={adminBadgeClass({ tone: pmStatusTone(link.provider_status) })}>{formatPmStatus(link.provider_status)}</span> : null}
+			</div>
+			{!config?.enabled ? (
+				<p className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">Enable the Trello integration before creating cards.</p>
+			) : null}
+			{link ? (
+				<div className="grid gap-3 md:grid-cols-3">
+					<RequestMeta label="Last sync" value={link.last_synced_at ? formatDateTime(link.last_synced_at) : "Not synced"} />
+					<RequestMeta label="Attachment sync" value={formatAttachmentSync(link)} />
+					<RequestMeta label="Card ID" value={link.provider_card_id} />
+				</div>
+			) : null}
+			<div className="flex flex-wrap items-center gap-2">
+				{link ? (
+					<>
+						<a
+							className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground"
+							href={link.provider_card_url}
+							target="_blank"
+							rel="noreferrer"
+						>
+							<ExternalLink className="size-4" aria-hidden="true" />
+							Open in Trello
+						</a>
+						<button
+							type="button"
+							className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+							onClick={onSync}
+							disabled={isSyncing}
+						>
+							<RefreshCw className="size-4" aria-hidden="true" />
+							Sync now
+						</button>
+					</>
+				) : (
+					<button
+						type="button"
+						className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+						onClick={onCreate}
+						disabled={!config?.enabled || isCreating}
+					>
+						<Send className="size-4" aria-hidden="true" />
+						Create Trello card
+					</button>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -668,6 +846,33 @@ function statusTone(status: AdminProductChangeRequestStatus) {
 	if (status === "done") return "active";
 	if (status === "closed") return "muted";
 	return "neutral";
+}
+
+function pmStatusTone(status: AdminProductChangeRequestPmLink["provider_status"]) {
+	if (status === "done") return "active";
+	if (status === "blocked" || status === "unknown") return "muted";
+	return "neutral";
+}
+
+function formatPmStatus(status: AdminProductChangeRequestPmLink["provider_status"]) {
+	if (status === "in_progress") return "In progress";
+	if (status === "blocked") return "Blocked";
+	if (status === "done") return "Done";
+	if (status === "unknown") return "Unknown";
+	return "To do";
+}
+
+function formatAttachmentSync(link: AdminProductChangeRequestPmLink) {
+	if (link.attachment_sync_status === "not_started") return "No attachments";
+	if (link.attachment_sync_status === "partial") return link.attachment_sync_error ?? "Partial";
+	if (link.attachment_sync_status === "failed") return link.attachment_sync_error ?? "Failed";
+	return "Complete";
+}
+
+function replacePmLink(links: AdminProductChangeRequestPmLink[], next: AdminProductChangeRequestPmLink) {
+	const existingIndex = links.findIndex((link) => link.id === next.id);
+	if (existingIndex === -1) return [next, ...links];
+	return links.map((link, index) => index === existingIndex ? next : link);
 }
 
 function formatDateTime(value: string) {
