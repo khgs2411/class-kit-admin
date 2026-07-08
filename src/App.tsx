@@ -113,13 +113,13 @@ export function App() {
 
 	return (
 		<main className="min-h-screen bg-background px-3 py-3 text-foreground md:px-4 md:py-4">
-			<div className="grid w-full gap-4">
-				<header className="flex min-w-0 flex-col gap-4 border-b border-border pb-4 lg:flex-row lg:items-end lg:justify-between">
+			<div className="grid w-full gap-3">
+				<header className="flex min-w-0 flex-col gap-3 border-b border-border pb-3 lg:flex-row lg:items-end lg:justify-between">
 					<div className="min-w-0 space-y-1">
 						<p className="admin-label truncate">Local platform operations</p>
 						<h1 className="truncate text-2xl font-semibold tracking-normal md:text-3xl">Class Kit Admin</h1>
 					</div>
-					<div className="grid min-w-0 gap-2 text-sm text-muted-foreground sm:grid-cols-3 lg:min-w-[30rem]">
+					<div className="grid min-w-0 gap-2 text-sm text-muted-foreground sm:grid-cols-3 lg:min-w-[24rem]">
 						<HeaderMetric label="Products" value={String(products.length)} />
 						<HeaderMetric label="Selected" value={selectedProduct?.product_key ?? "none"} />
 						<HeaderMetric label="Session" value={session ? "active" : "signed out"} />
@@ -134,15 +134,15 @@ export function App() {
 				{status === "error" ? <StatusPanel title="Admin board unavailable" message={error ?? "The admin board could not load."} tone="error" /> : null}
 
 				{status === "ready" && classKitClient ? (
-					<div className="grid gap-4 xl:grid-cols-[minmax(19rem,22rem)_minmax(0,1fr)]">
-						<aside className="order-2 grid min-w-0 content-start gap-4 xl:order-none xl:sticky xl:top-4">
-							<details className="rounded-md border border-border bg-card p-4">
+					<div className="grid gap-3 xl:grid-cols-[17.5rem_minmax(0,1fr)]">
+						<aside className="order-2 grid min-w-0 content-start gap-3 xl:order-none xl:sticky xl:top-4">
+							<details className="rounded-md border border-border bg-card p-3">
 								<summary className="flex cursor-pointer list-none items-center justify-between gap-3 marker:hidden">
 									<div className="min-w-0">
 										<h2 className="admin-panel-title">Workspace</h2>
 										<p className="admin-meta mt-1">Create and choose products.</p>
 									</div>
-									<span className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground">
+									<span className="inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground">
 										<Plus className="size-4" aria-hidden="true" />
 										New
 									</span>
@@ -215,15 +215,24 @@ function SelectedProductDetail({
 	const originCount = product.product_allowed_origins.length;
 	const authRedirectCount = product.product_auth_redirects.length;
 	const originEnvironmentCount = new Set(product.product_allowed_origins.map((origin) => origin.environment)).size;
+	const isRequestsSection = activeSection === "requests";
 
 	return (
 		<div className="order-1 grid gap-4 xl:order-none">
-			<section className="min-w-0 rounded-md border border-border bg-card p-4">
-				<div className="flex flex-col gap-3 border-b border-border pb-4 md:flex-row md:items-start md:justify-between">
+			<section className={`min-w-0 rounded-md border border-border bg-card ${isRequestsSection ? "p-3" : "p-4"}`}>
+				<div className={`flex flex-col gap-3 md:flex-row md:items-start md:justify-between ${isRequestsSection ? "" : "border-b border-border pb-4"}`}>
 					<div className="min-w-0">
 						<p className="admin-label truncate">Selected product</p>
 						<h2 className="admin-panel-heading mt-1 truncate">{product.name}</h2>
 						<p className="admin-code mt-1 truncate" title={product.product_key}>{product.product_key}</p>
+						{isRequestsSection ? (
+							<div className="mt-2 flex flex-wrap gap-2">
+								<span className={adminBadgeClass({ tone: product.status === "active" ? "active" : "muted" })}>{formatProductStatus(product.status)}</span>
+								<span className={adminBadgeClass({ tone: product.auth_mode === "open" ? "active" : "muted" })}>{formatAuthMode(product.auth_mode)}</span>
+								<span className={adminBadgeClass({ tone: "neutral" })}>{originCount} origins</span>
+								<span className={adminBadgeClass({ tone: "neutral" })}>{authRedirectCount} redirects</span>
+							</div>
+						) : null}
 					</div>
 					<div className="grid min-w-0 gap-3 md:justify-items-end">
 						<div className="flex min-w-0 flex-col gap-2 md:items-end">
@@ -239,34 +248,38 @@ function SelectedProductDetail({
 					</div>
 				</div>
 
-				<div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-					<DetailItem icon={product.status === "active" ? <CheckCircle2 className="size-4" aria-hidden="true" /> : <Circle className="size-4" aria-hidden="true" />} label="Status" value={formatProductStatus(product.status)} tone={product.status === "active" ? "active" : "muted"} />
-					<DetailItem icon={<KeyRound className="size-4" aria-hidden="true" />} label="Access" value={formatAuthMode(product.auth_mode)} tone={product.auth_mode === "open" ? "active" : "muted"} />
-					<DetailItem icon={<CircleSlash2 className="size-4" aria-hidden="true" />} label="Sign-in" value={enabledAuthMethods.length > 0 ? enabledAuthMethods.join(" + ") : "No providers"} />
-					<DetailItem icon={<Globe2 className="size-4" aria-hidden="true" />} label="Origins" value={`${originCount} across ${originEnvironmentCount || 0} env${originEnvironmentCount === 1 ? "" : "s"}`} />
-					<DetailItem icon={<ShieldCheck className="size-4" aria-hidden="true" />} label="Redirects" value={`${authRedirectCount} auth ${authRedirectCount === 1 ? "URL" : "URLs"}`} />
-				</div>
+				{isRequestsSection ? null : (
+					<div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+						<DetailItem icon={product.status === "active" ? <CheckCircle2 className="size-4" aria-hidden="true" /> : <Circle className="size-4" aria-hidden="true" />} label="Status" value={formatProductStatus(product.status)} tone={product.status === "active" ? "active" : "muted"} />
+						<DetailItem icon={<KeyRound className="size-4" aria-hidden="true" />} label="Access" value={formatAuthMode(product.auth_mode)} tone={product.auth_mode === "open" ? "active" : "muted"} />
+						<DetailItem icon={<CircleSlash2 className="size-4" aria-hidden="true" />} label="Sign-in" value={enabledAuthMethods.length > 0 ? enabledAuthMethods.join(" + ") : "No providers"} />
+						<DetailItem icon={<Globe2 className="size-4" aria-hidden="true" />} label="Origins" value={`${originCount} across ${originEnvironmentCount || 0} env${originEnvironmentCount === 1 ? "" : "s"}`} />
+						<DetailItem icon={<ShieldCheck className="size-4" aria-hidden="true" />} label="Redirects" value={`${authRedirectCount} auth ${authRedirectCount === 1 ? "URL" : "URLs"}`} />
+					</div>
+				)}
 			</section>
 
 			<section className="grid min-w-0 gap-4">
-				<div className="class-kit-demo-workflows grid gap-4">
-					{activeSection === "settings" ? (
-						<div className="grid gap-4">
-							<ProductOriginPanel client={client} product={product} onChanged={handleChanged} />
-							<ProductAuthRedirectPanel client={client} product={product} onChanged={handleChanged} />
-							<ProductAuthPolicyPanel client={client} product={product} onChanged={handleChanged} />
-							<ProductResetPanel client={client} product={product} onChanged={handleChanged} />
-						</div>
-					) : null}
+				{activeSection === "requests" ? <ProductChangeRequestsPanel client={client} product={product} /> : null}
 
-					{activeSection === "roles" ? <ProductRolePanel client={client} product={product} /> : null}
+				{activeSection !== "requests" ? (
+					<div className="class-kit-demo-workflows grid gap-4">
+						{activeSection === "settings" ? (
+							<div className="grid gap-4">
+								<ProductOriginPanel client={client} product={product} onChanged={handleChanged} />
+								<ProductAuthRedirectPanel client={client} product={product} onChanged={handleChanged} />
+								<ProductAuthPolicyPanel client={client} product={product} onChanged={handleChanged} />
+								<ProductResetPanel client={client} product={product} onChanged={handleChanged} />
+							</div>
+						) : null}
 
-					{activeSection === "users" ? (
-						<ProductUsersPanel client={client} product={product} currentUserId={currentUserId} refreshKey={refreshKey} />
-					) : null}
+						{activeSection === "roles" ? <ProductRolePanel client={client} product={product} /> : null}
 
-					{activeSection === "requests" ? <ProductChangeRequestsPanel client={client} product={product} /> : null}
-				</div>
+						{activeSection === "users" ? (
+							<ProductUsersPanel client={client} product={product} currentUserId={currentUserId} refreshKey={refreshKey} />
+						) : null}
+					</div>
+				) : null}
 			</section>
 		</div>
 	);

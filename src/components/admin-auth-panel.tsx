@@ -120,30 +120,41 @@ export function AdminAuthPanel({ client, session, error, supabaseTarget, onSigne
 		setIsSubmitting(false);
 	}
 
-	return (
-		<section className="rounded-md border border-border bg-card px-4 py-3">
-			<div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-				<div>
-					<h2 className="text-sm font-semibold">Admin access</h2>
-					<p className="admin-meta mt-1 truncate">
-						{session
-							? session.user.email ?? "Signed in"
-							: isLocalTarget
-								? "Sign in with your local platform admin account."
-								: "Sign in with your platform admin Google account."}
-					</p>
-				</div>
-				{session ? (
+	if (session) {
+		return (
+			<section className="rounded-md border border-border bg-card px-3 py-2">
+				<div className="flex min-w-0 items-center justify-between gap-3">
+					<div className="flex min-w-0 items-center gap-2">
+						<h2 className="shrink-0 text-sm font-semibold">Admin access</h2>
+						<p className="admin-meta truncate">{session.user.email ?? "Signed in"}</p>
+					</div>
 					<button
 						type="button"
-						className="inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border px-3 text-sm font-semibold hover:border-primary disabled:opacity-60"
+						className="inline-flex h-8 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border px-3 text-sm font-semibold hover:border-primary disabled:opacity-60"
 						onClick={handleSignOut}
 						disabled={isSubmitting}
 					>
 						<LogOut className="size-4" aria-hidden="true" />
 						Sign out
 					</button>
-				) : isLocalTarget ? (
+				</div>
+				{error || localError ? <p className="mt-2 text-sm font-medium text-destructive">{localError ?? error}</p> : null}
+			</section>
+		);
+	}
+
+	return (
+		<section className="rounded-md border border-border bg-card px-4 py-3">
+			<div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+				<div>
+					<h2 className="text-sm font-semibold">Admin access</h2>
+					<p className="admin-meta mt-1 truncate">
+						{isLocalTarget
+							? "Sign in with your local platform admin account."
+							: "Sign in with your platform admin Google account."}
+					</p>
+				</div>
+				{isLocalTarget ? (
 					<form className="grid gap-2 md:min-w-[24rem]" onSubmit={(event) => void handlePasswordSignIn(event)}>
 						<div className="grid gap-2 sm:grid-cols-2">
 							<label className="grid gap-1 text-xs font-semibold text-muted-foreground">

@@ -31,12 +31,12 @@ export function ProductList({ products, selectedProductKey, onSelect }: ProductL
 
 	return (
 		<section className="rounded-md border border-border bg-card">
-			<div className="border-b border-border p-4">
+			<div className="border-b border-border p-3">
 				<div className="flex items-center justify-between gap-3">
 					<h2 className="admin-panel-title">Products</h2>
 					<p className="admin-meta shrink-0">{products.length} total</p>
 				</div>
-				<label className="mt-3 flex h-10 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm">
+				<label className="mt-3 flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm">
 					<Search className="size-4 text-muted-foreground" aria-hidden="true" />
 					<span className="sr-only">Search products</span>
 					<input className="min-w-0 flex-1 bg-transparent outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products" />
@@ -53,7 +53,7 @@ export function ProductList({ products, selectedProductKey, onSelect }: ProductL
 						<button
 							key={product.id}
 							type="button"
-							className={`grid w-full gap-3 px-4 py-3 text-left outline-none transition hover:bg-background focus-visible:ring-2 focus-visible:ring-primary ${
+							className={`grid w-full gap-2 px-3 py-2.5 text-left outline-none transition hover:bg-background focus-visible:ring-2 focus-visible:ring-primary ${
 								isSelected ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary" : "bg-card"
 							}`}
 							onClick={() => onSelect(product)}
@@ -70,12 +70,12 @@ export function ProductList({ products, selectedProductKey, onSelect }: ProductL
 									{formatProductStatus(product.status)}
 								</span>
 							</span>
-							<span className={`grid gap-2 text-xs sm:grid-cols-2 ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-								<span className={adminBadgeClass({ tone: isSelected ? "selected-muted" : product.auth_mode === "open" ? "active" : "muted", className: "min-w-0" })}>
+							<span className={`grid gap-1.5 text-xs ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+								<span className={adminBadgeClass({ tone: isSelected ? "selected-muted" : product.auth_mode === "open" ? "active" : "muted", size: "compact", className: "min-w-0" })}>
 									<KeyRound className="size-3.5 shrink-0" aria-hidden="true" />
 									<span className="truncate">{formatAuthMode(product.auth_mode)}</span>
 								</span>
-								<span className={adminBadgeClass({ tone: isSelected ? "selected-muted" : "muted", className: "min-w-0" })}>
+								<span className={adminBadgeClass({ tone: isSelected ? "selected-muted" : "muted", size: "compact", className: "min-w-0" })}>
 									<Globe2 className="size-3.5 shrink-0" aria-hidden="true" />
 									<span className="truncate">{originCount} {originCount === 1 ? "origin" : "origins"}</span>
 								</span>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	AdminProductChangeRequest,
 	AdminProductChangeRequestAttachment,
@@ -6,11 +6,13 @@ import type {
 	AdminProductListItem,
 	ClassKitClient,
 } from "@class-kit/react";
-import { Download, RefreshCw, Trash2 } from "lucide-react";
+import { Clock3, Download, Eye, ImageIcon, Paperclip, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { adminBadgeClass } from "./admin-badge";
 import { AdminEmptyState, AdminPanelMessage } from "./admin-feedback";
 
 type AdminProductChangeRequestRevision = AdminProductChangeRequest["revisions"][number];
+type RequestTypeFilter = "all" | AdminProductChangeRequest["type"];
+type RequestStatusFilter = "all" | AdminProductChangeRequestStatus;
 
 type ProductChangeRequestsPanelProps = {
 	client: ClassKitClient;
@@ -21,20 +23,35 @@ const statuses: AdminProductChangeRequestStatus[] = ["open", "in_progress", "don
 
 export function ProductChangeRequestsPanel({ client, product }: ProductChangeRequestsPanelProps) {
 	const [requests, setRequests] = useState<AdminProductChangeRequest[]>([]);
+	const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+	const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
+	const [statusFilter, setStatusFilter] = useState<RequestStatusFilter>("all");
+	const [typeFilter, setTypeFilter] = useState<RequestTypeFilter>("all");
+	const [query, setQuery] = useState("");
 	const [isLoading, setIsLoading] = useState(true);
 	const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
 	const [pendingAttachmentId, setPendingAttachmentId] = useState<string | null>(null);
 	const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState<Record<string, string>>({});
 	const [message, setMessage] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+
 	const sortedRequests = useMemo(
-		() => [...requests].sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at)),
+		() => [...requests].sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at)),
 		[requests],
 	);
+	const filteredRequests = useMemo(
+		() => sortedRequests.filter((request) => matchesFilters(request, { query, statusFilter, typeFilter })),
+		[query, sortedRequests, statusFilter, typeFilter],
+	);
+	const selectedRequest = filteredRequests.find((request) => request.id === selectedRequestId) ?? filteredRequests[0] ?? null;
+	const selectedRevisions = selectedRequest ? getRequestRevisions(selectedRequest) : [];
+	const selectedRevision = selectedRevisions.find((revision) => revision.id === selectedRevisionId) ?? selectedRevisions[selectedRevisions.length - 1] ?? null;
+	const openCount = sortedRequests.filter((request) => request.status === "open").length;
+	const attachmentCount = sortedRequests.reduce((total, request) => total + getRequestRevisions(request).reduce((count, revision) => count + revision.attachments.length, 0), 0);
 
 	const loadAttachmentPreviews = useCallback(async (requestRows: AdminProductChangeRequest[]) => {
 		const imageAttachments = requestRows
-			.flatMap((request) => request.revisions.flatMap((revision) => revision.attachments))
+			.flatMap((request) => getRequestRevisions(request).flatMap((revision) => revision.attachments))
 			.filter((attachment) => attachment.status === "uploaded" && isImageAttachment(attachment));
 
 		if (imageAttachments.length === 0) {
@@ -90,6 +107,16 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 		};
 	}, [client, loadAttachmentPreviews, product.product_key]);
 
+	useEffect(() => {
+		if (!selectedRequest) {
+			setSelectedRequestId(null);
+			setSelectedRevisionId(null);
+			return;
+		}
+		setSelectedRequestId(selectedRequest.id);
+		setSelectedRevisionId(selectedRequest.id);
+	}, [selectedRequest?.id]);
+
 	async function updateStatus(request: AdminProductChangeRequest, status: AdminProductChangeRequestStatus) {
 		if (request.status === status) return;
 		setPendingRequestId(request.id);
@@ -139,110 +166,201 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 	}
 
 	return (
-		<section className="grid gap-4 rounded-md border border-border bg-card p-4">
-			<div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+		<section className="overflow-hidden rounded-md border border-border bg-card">
+			<div className="flex min-w-0 flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-start lg:justify-between">
 				<div className="min-w-0">
 					<p className="admin-label truncate">Product requests</p>
-					<h2 className="admin-panel-title">Change requests</h2>
+					<h2 className="admin-panel-heading mt-1">Change requests</h2>
 					<p className="admin-meta mt-1">Issues and feature requests opened by this product's managers.</p>
 				</div>
-				<button
-					type="button"
-					className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-					onClick={() => void loadRequests()}
-					disabled={isLoading}
-				>
-					<RefreshCw className="size-4" aria-hidden="true" />
-					Refresh
-				</button>
+				<div className="grid gap-2 sm:grid-cols-3 lg:min-w-[26rem]">
+					<SummaryTile label="Open" value={String(openCount)} />
+					<SummaryTile label="Total" value={String(sortedRequests.length)} />
+					<SummaryTile label="Files" value={String(attachmentCount)} />
+				</div>
+			</div>
+
+			<div className="border-b border-border px-4 py-3">
+				<div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_10rem_10rem_auto] lg:items-center">
+					<label className="relative min-w-0">
+						<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+						<input
+							className="h-10 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none focus:border-primary"
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							placeholder="Search requests"
+						/>
+					</label>
+					<select
+						className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground"
+						value={statusFilter}
+						onChange={(event) => setStatusFilter(event.target.value as RequestStatusFilter)}
+					>
+						<option value="all">All statuses</option>
+						{statuses.map((status) => <option value={status} key={status}>{formatStatus(status)}</option>)}
+					</select>
+					<select
+						className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground"
+						value={typeFilter}
+						onChange={(event) => setTypeFilter(event.target.value as RequestTypeFilter)}
+					>
+						<option value="all">All types</option>
+						<option value="feature_request">Feature requests</option>
+						<option value="issue">Issues</option>
+					</select>
+					<button
+						type="button"
+						className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+						onClick={() => void loadRequests()}
+						disabled={isLoading}
+					>
+						<RefreshCw className="size-4" aria-hidden="true" />
+						Refresh
+					</button>
+				</div>
 			</div>
 
 			<AdminPanelMessage message={message} error={error} />
 
 			{isLoading ? <AdminEmptyState>Loading product change requests.</AdminEmptyState> : null}
 			{!isLoading && sortedRequests.length === 0 ? <AdminEmptyState>No product change requests yet.</AdminEmptyState> : null}
+			{!isLoading && sortedRequests.length > 0 && filteredRequests.length === 0 ? <AdminEmptyState>No requests match the current filters.</AdminEmptyState> : null}
 
-			{sortedRequests.length > 0 ? (
-				<div className="grid gap-3">
-					{sortedRequests.map((request) => (
-						<ChangeRequestCard
-							attachmentPreviewUrls={attachmentPreviewUrls}
-							key={request.id}
-							onDelete={deleteRequest}
-							onOpenAttachment={openAttachment}
-							onUpdateStatus={updateStatus}
-							pendingAttachmentId={pendingAttachmentId}
-							pendingRequestId={pendingRequestId}
-							request={request}
-						/>
-					))}
+			{!isLoading && filteredRequests.length > 0 ? (
+				<div className="grid min-h-[38rem] lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(22rem,1fr)_15rem]">
+					<RequestInbox
+						requests={filteredRequests}
+						selectedRequestId={selectedRequest?.id ?? null}
+						onSelectRequest={(request) => {
+							setSelectedRequestId(request.id);
+							setSelectedRevisionId(request.id);
+						}}
+					/>
+
+					<RequestDetail
+						onDelete={deleteRequest}
+						onUpdateStatus={updateStatus}
+						pendingRequestId={pendingRequestId}
+						request={selectedRequest}
+						revision={selectedRevision}
+					/>
+
+					<RequestSideRail
+						attachmentPreviewUrls={attachmentPreviewUrls}
+						onOpenAttachment={openAttachment}
+						onSelectRevision={setSelectedRevisionId}
+						pendingAttachmentId={pendingAttachmentId}
+						request={selectedRequest}
+						revisions={selectedRevisions}
+						selectedRevision={selectedRevision}
+					/>
 				</div>
 			) : null}
 		</section>
 	);
 }
 
-function ChangeRequestCard({
-	attachmentPreviewUrls,
-	onDelete,
-	onOpenAttachment,
-	onUpdateStatus,
-	pendingAttachmentId,
-	pendingRequestId,
-	request,
-}: {
-	attachmentPreviewUrls: Record<string, string>;
-	onDelete: (request: AdminProductChangeRequest) => Promise<void>;
-	onOpenAttachment: (attachment: AdminProductChangeRequestAttachment) => Promise<void>;
-	onUpdateStatus: (request: AdminProductChangeRequest, status: AdminProductChangeRequestStatus) => Promise<void>;
-	pendingAttachmentId: string | null;
-	pendingRequestId: string | null;
-	request: AdminProductChangeRequest;
-}) {
-	const [selectedRevisionId, setSelectedRevisionId] = useState(request.id);
-	const revisions = request.revisions.length > 0 ? request.revisions : [request];
-	const selectedRevision = revisions.find((revision) => revision.id === selectedRevisionId) ?? revisions[revisions.length - 1];
-	const hasRevisionRail = revisions.length > 1;
-
-	useEffect(() => {
-		setSelectedRevisionId(request.id);
-	}, [request.id]);
-
+function SummaryTile({ label, value }: { label: string; value: string }) {
 	return (
-		<article className="grid gap-3 rounded-md border border-border bg-background p-3">
-			<div className={`grid gap-4 ${hasRevisionRail ? "xl:grid-cols-[minmax(0,1fr)_17rem]" : ""}`}>
-				<div className="grid min-w-0 gap-3">
-					<div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
-						<RequestHeader request={selectedRevision} latestRequest={request} />
-						<label className="grid gap-1 text-sm md:w-44 md:shrink-0">
-							<span className="admin-label">Status</span>
-							<select
-								className="h-10 rounded-md border border-border bg-card px-3 text-sm text-foreground"
-								value={request.status}
-								onChange={(event) => void onUpdateStatus(request, event.target.value as AdminProductChangeRequestStatus)}
-								disabled={pendingRequestId === request.id}
-							>
-								{statuses.map((status) => <option value={status} key={status}>{formatStatus(status)}</option>)}
-							</select>
-						</label>
-					</div>
+		<div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
+			<p className="admin-label truncate">{label}</p>
+			<p className="mt-1 truncate text-base font-semibold text-foreground">{value}</p>
+		</div>
+	);
+}
 
-					<div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-3">
-						<RequestMeta label="Created" value={formatDateTime(selectedRevision.created_at)} />
-						<RequestMeta label="Updated" value={formatDateTime(selectedRevision.updated_at)} />
-						<RequestMeta label="Context" value={formatRequestContext(selectedRevision.context) ?? "No context"} />
-					</div>
-
-					<AttachmentList
-						attachmentPreviewUrls={attachmentPreviewUrls}
-						attachments={selectedRevision.attachments}
-						onOpenAttachment={onOpenAttachment}
-						pendingAttachmentId={pendingAttachmentId}
-					/>
-
+function RequestInbox({
+	onSelectRequest,
+	requests,
+	selectedRequestId,
+}: {
+	onSelectRequest: (request: AdminProductChangeRequest) => void;
+	requests: AdminProductChangeRequest[];
+	selectedRequestId: string | null;
+}) {
+	return (
+		<aside className="grid content-start border-b border-border bg-background/60 lg:row-span-2 lg:border-b-0 lg:border-r xl:row-span-1">
+			<div className="border-b border-border px-3 py-2">
+				<p className="admin-label">Queue</p>
+			</div>
+			<div className="grid max-h-[42rem] content-start gap-1 overflow-auto p-2">
+				{requests.map((request) => (
 					<button
 						type="button"
-						className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-destructive hover:text-destructive disabled:cursor-not-allowed disabled:opacity-60 md:w-44"
+						className={`grid min-w-0 gap-2 rounded-md border p-3 text-left transition ${request.id === selectedRequestId ? "border-primary bg-card shadow-sm" : "border-transparent hover:border-border hover:bg-card"}`}
+						onClick={() => onSelectRequest(request)}
+						key={request.id}
+					>
+						<span className="flex min-w-0 items-center justify-between gap-2">
+							<span className={adminBadgeClass({ tone: request.type === "issue" ? "muted" : "active", size: "compact" })}>{formatRequestType(request.type)}</span>
+							<span className={adminBadgeClass({ tone: statusTone(request.status), size: "compact" })}>{formatStatus(request.status)}</span>
+						</span>
+						<span className="truncate text-sm font-semibold text-foreground">{request.title || request.description}</span>
+						<span className="line-clamp-2 text-xs leading-5 text-muted-foreground">{request.description}</span>
+						<span className="flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
+							<span className="inline-flex min-w-0 items-center gap-1">
+								<Clock3 className="size-3.5 shrink-0" aria-hidden="true" />
+								<span className="truncate">{formatDateTime(request.updated_at)}</span>
+							</span>
+							<span className="inline-flex items-center gap-1">
+								<Paperclip className="size-3.5" aria-hidden="true" />
+								{countRequestAttachments(request)}
+							</span>
+						</span>
+					</button>
+				))}
+			</div>
+		</aside>
+	);
+}
+
+function RequestDetail({
+	onDelete,
+	onUpdateStatus,
+	pendingRequestId,
+	request,
+	revision,
+}: {
+	onDelete: (request: AdminProductChangeRequest) => Promise<void>;
+	onUpdateStatus: (request: AdminProductChangeRequest, status: AdminProductChangeRequestStatus) => Promise<void>;
+	pendingRequestId: string | null;
+	request: AdminProductChangeRequest | null;
+	revision: AdminProductChangeRequestRevision | null;
+}) {
+	if (!request || !revision) {
+		return <AdminEmptyState>Select a request to inspect its details.</AdminEmptyState>;
+	}
+
+	const contextLabel = formatRequestContext(revision.context);
+
+	return (
+		<div className="grid content-start gap-4 border-b border-border p-4 lg:border-b-0">
+			<div className="flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
+				<div className="min-w-0">
+					<div className="flex flex-wrap gap-2">
+						<span className={adminBadgeClass({ tone: revision.type === "issue" ? "muted" : "active" })}>{formatRequestType(revision.type)}</span>
+						<span className={adminBadgeClass({ tone: statusTone(revision.status) })}>{formatStatus(revision.status)}</span>
+						<span className={adminBadgeClass({ tone: revision.id === request.id ? "neutral" : "muted" })}>v{revision.version_number}</span>
+						{revision.id !== request.id ? <span className={adminBadgeClass({ tone: "muted" })}>Older version</span> : null}
+					</div>
+					<h3 className="mt-3 text-xl font-semibold leading-tight text-foreground">{revision.title || revision.description}</h3>
+					<p className="admin-code mt-2 truncate" title={revision.id}>{revision.id}</p>
+				</div>
+				<div className="grid max-w-sm gap-2 sm:grid-cols-[minmax(0,1fr)_9rem] 2xl:shrink-0">
+					<label className="grid gap-1 text-sm">
+						<span className="admin-label">Status</span>
+						<select
+							className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground"
+							value={request.status}
+							onChange={(event) => void onUpdateStatus(request, event.target.value as AdminProductChangeRequestStatus)}
+							disabled={pendingRequestId === request.id}
+						>
+							{statuses.map((status) => <option value={status} key={status}>{formatStatus(status)}</option>)}
+						</select>
+					</label>
+					<button
+						type="button"
+						className="mt-5 inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-destructive hover:text-destructive disabled:cursor-not-allowed disabled:opacity-60"
 						onClick={() => void onDelete(request)}
 						disabled={pendingRequestId === request.id}
 					>
@@ -250,83 +368,87 @@ function ChangeRequestCard({
 						Delete
 					</button>
 				</div>
-
-				{hasRevisionRail ? (
-					<RevisionRail
-						currentRequestId={request.id}
-						revisions={revisions}
-						selectedRevisionId={selectedRevision.id}
-						onSelectRevision={setSelectedRevisionId}
-					/>
-				) : null}
 			</div>
-		</article>
-	);
-}
 
-function RequestHeader({ latestRequest, request }: { latestRequest: AdminProductChangeRequest; request: AdminProductChangeRequestRevision }) {
-	const contextLabel = formatRequestContext(request.context);
-	return (
-		<div className="min-w-0">
-			<div className="flex flex-wrap gap-2">
-				<span className={adminBadgeClass({ tone: request.type === "issue" ? "muted" : "active" })}>
-					{formatRequestType(request.type)}
-				</span>
-				<span className={adminBadgeClass({ tone: statusTone(request.status) })}>{formatStatus(request.status)}</span>
-				<span className={adminBadgeClass({ tone: request.id === latestRequest.id ? "neutral" : "muted" })}>v{request.version_number}</span>
-				{request.id !== latestRequest.id ? <span className={adminBadgeClass({ tone: "muted" })}>Older version</span> : null}
-				{contextLabel ? <span className={adminBadgeClass({ tone: "neutral" })}>{contextLabel}</span> : null}
+			<div className="grid gap-3 md:grid-cols-3">
+				<RequestMeta label="Created" value={formatDateTime(revision.created_at)} />
+				<RequestMeta label="Updated" value={formatDateTime(revision.updated_at)} />
+				<RequestMeta label="Context" value={contextLabel ?? "No context"} />
 			</div>
-			<h3 className="mt-2 truncate text-sm font-semibold text-foreground">{request.title || request.description}</h3>
-			<p className="admin-meta mt-1 whitespace-pre-wrap">{request.description}</p>
-			<p className="admin-code mt-2 truncate" title={request.id}>{request.id}</p>
+
+			<div className="grid gap-2 rounded-md border border-border bg-background p-4">
+				<p className="admin-label">Client request</p>
+				<p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{revision.description}</p>
+			</div>
+
+			{revision.previous_request_id ? (
+				<div className="rounded-md border border-border bg-background p-4">
+					<p className="admin-label">Version note</p>
+					<p className="admin-meta mt-1">This is version {revision.version_number}. Use the version panel to compare older request text and attachments.</p>
+				</div>
+			) : null}
 		</div>
 	);
 }
 
-function RevisionRail({
-	currentRequestId,
+function RequestSideRail({
+	attachmentPreviewUrls,
+	onOpenAttachment,
 	onSelectRevision,
+	pendingAttachmentId,
+	request,
 	revisions,
-	selectedRevisionId,
+	selectedRevision,
 }: {
-	currentRequestId: string;
+	attachmentPreviewUrls: Record<string, string>;
+	onOpenAttachment: (attachment: AdminProductChangeRequestAttachment) => Promise<void>;
 	onSelectRevision: (revisionId: string) => void;
+	pendingAttachmentId: string | null;
+	request: AdminProductChangeRequest | null;
 	revisions: AdminProductChangeRequestRevision[];
-	selectedRevisionId: string;
+	selectedRevision: AdminProductChangeRequestRevision | null;
 }) {
-	if (revisions.length <= 1) return null;
-
 	return (
-		<aside className="grid content-start gap-2 border-t border-border pt-3 xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0">
-			<p className="admin-label">Versions</p>
+		<aside className="grid content-start gap-4 border-t border-border bg-background/70 p-3 lg:col-start-2 xl:col-start-auto xl:border-l xl:border-t-0">
 			<div className="grid gap-2">
-				{[...revisions].reverse().map((revision) => {
-					const isSelected = revision.id === selectedRevisionId;
-					const isCurrent = revision.id === currentRequestId;
-					return (
-						<button
-							type="button"
-							className={`grid min-w-0 gap-1 rounded-md border p-3 text-left text-sm transition ${isSelected ? "border-primary bg-primary/5 text-foreground" : "border-border bg-card text-muted-foreground hover:border-primary hover:text-foreground"}`}
-							onClick={() => onSelectRevision(revision.id)}
-							key={revision.id}
-						>
-							<span className="flex items-center justify-between gap-2">
-								<span className="font-semibold text-foreground">v{revision.version_number}</span>
-								<span className={adminBadgeClass({ tone: isCurrent ? "active" : "muted", size: "compact" })}>{isCurrent ? "Current" : formatStatus(revision.status)}</span>
-							</span>
-							<span className="truncate">{revision.title || revision.description}</span>
-							<span className="admin-meta truncate">{formatDateTime(revision.created_at)}</span>
-							<span className="admin-meta">{revision.attachments.length} attachment{revision.attachments.length === 1 ? "" : "s"}</span>
-						</button>
-					);
-				})}
+				<p className="admin-label">Versions</p>
+				{request && revisions.length > 0 ? (
+					<div className="grid gap-2">
+						{[...revisions].reverse().map((revision) => {
+							const isSelected = revision.id === selectedRevision?.id;
+							const isCurrent = revision.id === request.id;
+							return (
+								<button
+									type="button"
+									className={`grid min-w-0 gap-1 rounded-md border p-3 text-left text-sm transition ${isSelected ? "border-primary bg-card shadow-sm" : "border-border bg-card/70 hover:border-primary hover:bg-card"}`}
+									onClick={() => onSelectRevision(revision.id)}
+									key={revision.id}
+								>
+									<span className="flex items-center justify-between gap-2">
+										<span className="font-semibold text-foreground">v{revision.version_number}</span>
+										<span className={adminBadgeClass({ tone: isCurrent ? "active" : statusTone(revision.status), size: "compact" })}>{isCurrent ? "Current" : formatStatus(revision.status)}</span>
+									</span>
+									<span className="truncate text-foreground">{revision.title || revision.description}</span>
+									<span className="admin-meta truncate">{formatDateTime(revision.created_at)}</span>
+									<span className="admin-meta">{revision.attachments.length} attachment{revision.attachments.length === 1 ? "" : "s"}</span>
+								</button>
+							);
+						})}
+					</div>
+				) : <AdminEmptyState>No versions.</AdminEmptyState>}
 			</div>
+
+			<AttachmentPanel
+				attachmentPreviewUrls={attachmentPreviewUrls}
+				attachments={selectedRevision?.attachments ?? []}
+				onOpenAttachment={onOpenAttachment}
+				pendingAttachmentId={pendingAttachmentId}
+			/>
 		</aside>
 	);
 }
 
-function AttachmentList({
+function AttachmentPanel({
 	attachmentPreviewUrls,
 	attachments,
 	onOpenAttachment,
@@ -337,61 +459,184 @@ function AttachmentList({
 	onOpenAttachment: (attachment: AdminProductChangeRequestAttachment) => Promise<void>;
 	pendingAttachmentId: string | null;
 }) {
-	if (attachments.length === 0) return null;
+	const [previewAttachment, setPreviewAttachment] = useState<{ attachment: AdminProductChangeRequestAttachment; url: string } | null>(null);
 
 	return (
-		<div className="grid gap-2 border-t border-border pt-3">
-			<p className="admin-label">Attachments</p>
-			{attachments.some((attachment) => attachmentPreviewUrls[attachment.id]) ? (
-				<div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-					{attachments.map((attachment) => {
-						const previewUrl = attachmentPreviewUrls[attachment.id];
-						if (!previewUrl) return null;
-						return (
-							<button
-								type="button"
-								className="group grid min-w-0 gap-2 rounded-md border border-border bg-card p-2 text-left hover:border-primary disabled:cursor-not-allowed disabled:opacity-60"
-								onClick={() => void onOpenAttachment(attachment)}
-								disabled={pendingAttachmentId === attachment.id}
-								key={`${attachment.id}:preview`}
-							>
-								<img
-									className="h-44 w-full rounded-md border border-border object-contain"
-									src={previewUrl}
-									alt={attachment.file_name}
-									loading="lazy"
-								/>
-								<span className="truncate text-xs font-medium text-muted-foreground group-hover:text-foreground">{attachment.file_name}</span>
-							</button>
-						);
-					})}
+		<div className="grid gap-2">
+			<div className="flex items-center justify-between gap-2">
+				<p className="admin-label">Attachments</p>
+				<span className={adminBadgeClass({ tone: "muted", size: "compact" })}>{attachments.length}</span>
+			</div>
+			{attachments.length === 0 ? (
+				<div className="rounded-md border border-dashed border-border bg-card p-4 text-center">
+					<ImageIcon className="mx-auto size-5 text-muted-foreground" aria-hidden="true" />
+					<p className="admin-meta mt-2">No files on this version.</p>
 				</div>
 			) : null}
-			<div className="flex flex-wrap gap-2">
-				{attachments.map((attachment) => (
-					<button
-						type="button"
-						className="inline-flex h-9 max-w-full items-center gap-2 rounded-md border border-border px-3 text-sm text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-						onClick={() => void onOpenAttachment(attachment)}
-						disabled={pendingAttachmentId === attachment.id || attachment.status !== "uploaded"}
-						key={attachment.id}
-					>
-						<Download className="size-4 shrink-0" aria-hidden="true" />
-						<span className="truncate">{attachment.file_name}</span>
-					</button>
-				))}
-			</div>
+			{attachments.map((attachment) => {
+				const previewUrl = attachmentPreviewUrls[attachment.id];
+				return (
+					<div className="grid min-w-0 gap-2 rounded-md border border-border bg-card p-2" key={attachment.id}>
+						{previewUrl ? (
+							<button
+								type="button"
+								className="group grid min-w-0 gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60"
+								onClick={() => setPreviewAttachment({ attachment, url: previewUrl })}
+								disabled={pendingAttachmentId === attachment.id}
+							>
+								<span className="relative block overflow-hidden rounded-md border border-border bg-background">
+									<img
+										className="h-40 w-full object-contain transition group-hover:scale-[1.01]"
+										src={previewUrl}
+										alt={attachment.file_name}
+										loading="lazy"
+									/>
+									<span className="absolute inset-x-2 bottom-2 inline-flex h-8 items-center justify-center gap-2 rounded-md border border-border bg-card/95 px-3 text-xs font-semibold text-foreground opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-visible:opacity-100">
+										<Eye className="size-3.5" aria-hidden="true" />
+										Preview
+									</span>
+								</span>
+								<span className="truncate text-xs font-medium text-muted-foreground group-hover:text-foreground">{attachment.file_name}</span>
+							</button>
+						) : (
+							<p className="truncate text-sm font-medium text-foreground">{attachment.file_name}</p>
+						)}
+						<button
+							type="button"
+							className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border px-3 text-sm text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+							onClick={() => void onOpenAttachment(attachment)}
+							disabled={pendingAttachmentId === attachment.id || attachment.status !== "uploaded"}
+						>
+							<Download className="size-4 shrink-0" aria-hidden="true" />
+							Download
+						</button>
+					</div>
+				);
+			})}
+			<AttachmentPreviewDialog preview={previewAttachment} onClose={() => setPreviewAttachment(null)} onDownload={onOpenAttachment} pendingAttachmentId={pendingAttachmentId} />
 		</div>
+	);
+}
+
+function AttachmentPreviewDialog({
+	onClose,
+	onDownload,
+	pendingAttachmentId,
+	preview,
+}: {
+	onClose: () => void;
+	onDownload: (attachment: AdminProductChangeRequestAttachment) => Promise<void>;
+	pendingAttachmentId: string | null;
+	preview: { attachment: AdminProductChangeRequestAttachment; url: string } | null;
+}) {
+	const dialogRef = useRef<HTMLDialogElement>(null);
+
+	useEffect(() => {
+		const dialog = dialogRef.current;
+		if (!dialog) return;
+
+		if (preview && !dialog.open) {
+			dialog.showModal();
+			return;
+		}
+
+		if (!preview && dialog.open) {
+			dialog.close();
+		}
+	}, [preview]);
+
+	return (
+		<dialog
+			ref={dialogRef}
+			className="m-auto w-[calc(100vw-2rem)] max-w-5xl overflow-hidden rounded-md border border-border bg-card p-0 text-foreground shadow-2xl backdrop:bg-background/70"
+			onCancel={(event) => {
+				event.preventDefault();
+				onClose();
+			}}
+			onClose={onClose}
+		>
+			{preview ? (
+				<div className="grid max-h-[calc(100vh-2rem)] min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]">
+					<div className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+						<div className="min-w-0">
+							<p className="admin-label">Attachment preview</p>
+							<h3 className="truncate text-sm font-semibold text-foreground" title={preview.attachment.file_name}>{preview.attachment.file_name}</h3>
+						</div>
+						<button
+							type="button"
+							className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:border-primary hover:text-foreground"
+							onClick={onClose}
+							aria-label="Close preview"
+						>
+							<X className="size-4" aria-hidden="true" />
+						</button>
+					</div>
+					<div className="min-h-0 overflow-auto bg-background p-4">
+						<img
+							className="mx-auto max-h-[70vh] w-auto max-w-full rounded-md border border-border bg-card object-contain"
+							src={preview.url}
+							alt={preview.attachment.file_name}
+						/>
+					</div>
+					<div className="flex min-w-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
+						<button
+							type="button"
+							className="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-primary hover:text-foreground"
+							onClick={onClose}
+						>
+							Close
+						</button>
+						<button
+							type="button"
+							className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+							onClick={() => void onDownload(preview.attachment)}
+							disabled={pendingAttachmentId === preview.attachment.id || preview.attachment.status !== "uploaded"}
+						>
+							<Download className="size-4" aria-hidden="true" />
+							Download
+						</button>
+					</div>
+				</div>
+			) : null}
+		</dialog>
 	);
 }
 
 function RequestMeta({ label, value }: { label: string; value: string }) {
 	return (
-		<div className="min-w-0 rounded-md border border-border bg-card px-3 py-2">
+		<div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
 			<p className="admin-label truncate">{label}</p>
-			<p className="mt-1 truncate text-foreground" title={value}>{value}</p>
+			<p className="mt-1 truncate text-sm font-medium text-foreground" title={value}>{value}</p>
 		</div>
 	);
+}
+
+function getRequestRevisions(request: AdminProductChangeRequest): AdminProductChangeRequestRevision[] {
+	return request.revisions.length > 0 ? request.revisions : [request];
+}
+
+function countRequestAttachments(request: AdminProductChangeRequest): number {
+	return getRequestRevisions(request).reduce((total, revision) => total + revision.attachments.length, 0);
+}
+
+function matchesFilters(
+	request: AdminProductChangeRequest,
+	{ query, statusFilter, typeFilter }: { query: string; statusFilter: RequestStatusFilter; typeFilter: RequestTypeFilter },
+) {
+	if (statusFilter !== "all" && request.status !== statusFilter) return false;
+	if (typeFilter !== "all" && request.type !== typeFilter) return false;
+
+	const normalizedQuery = query.trim().toLowerCase();
+	if (!normalizedQuery) return true;
+	const context = formatRequestContext(request.context) ?? "";
+	return [
+		request.id,
+		request.title ?? "",
+		request.description,
+		context,
+		request.product?.product_key ?? "",
+		request.product?.name ?? "",
+	].some((value) => value.toLowerCase().includes(normalizedQuery));
 }
 
 function formatRequestType(type: AdminProductChangeRequest["type"]) {
