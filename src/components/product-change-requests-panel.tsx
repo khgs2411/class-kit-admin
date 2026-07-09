@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	AdminPmIntegrationConfig,
+	AdminPmIntegrationLabelMapping,
 	AdminProductChangeRequestPmLink,
 	AdminProductChangeRequest,
 	AdminProductChangeRequestAttachment,
@@ -8,7 +9,7 @@ import type {
 	AdminProductListItem,
 	ClassKitClient,
 } from "@class-kit/react";
-import { Clock3, Download, ExternalLink, Eye, ImageIcon, Paperclip, RefreshCw, Search, Send, Trash2, X } from "lucide-react";
+import { Clock3, Download, ExternalLink, Eye, ImageIcon, Paperclip, RefreshCw, Search, Send, Trash2, Unlink, X } from "lucide-react";
 import { adminBadgeClass } from "./admin-badge";
 import { AdminEmptyState, AdminPanelMessage } from "./admin-feedback";
 
@@ -35,6 +36,7 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 	const [pendingAttachmentId, setPendingAttachmentId] = useState<string | null>(null);
 	const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState<Record<string, string>>({});
 	const [pmConfig, setPmConfig] = useState<AdminPmIntegrationConfig | null>(null);
+	const [pmLabelMappings, setPmLabelMappings] = useState<AdminPmIntegrationLabelMapping[]>([]);
 	const [pmLinks, setPmLinks] = useState<AdminProductChangeRequestPmLink[]>([]);
 	const [pendingPmAction, setPendingPmAction] = useState<string | null>(null);
 	const [message, setMessage] = useState<string | null>(null);
@@ -101,7 +103,12 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 			const data = await client.admin.pmIntegrations.syncLinkedWorkItems({ productKey: product.product_key });
 			setPmLinks(data.links);
 			if (!options.silent) {
-				setMessage(data.summary.failed > 0 ? `Synced ${data.summary.synced} Trello card${data.summary.synced === 1 ? "" : "s"}; ${data.summary.failed} failed.` : "Trello statuses synced.");
+				const detached = data.summary.detached ?? 0;
+				if (data.summary.failed > 0) {
+					setMessage(`Synced ${data.summary.synced} Trello card${data.summary.synced === 1 ? "" : "s"}; ${data.summary.failed} failed${detached > 0 ? `; ${detached} detached` : ""}.`);
+				} else {
+					setMessage(detached > 0 ? `Trello statuses synced; ${detached} missing card${detached === 1 ? " was" : "s were"} detached.` : "Trello statuses synced.");
+				}
 				await loadRequests({ showLoading: false });
 			}
 		} catch (caught) {
@@ -115,6 +122,7 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 		try {
 			const data = await client.admin.pmIntegrations.getConfig();
 			setPmConfig(data.config);
+			setPmLabelMappings(data.label_mappings);
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not load Trello integration config.");
 		}
@@ -182,18 +190,34 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 		}
 	}
 
-	async function createPmWorkItem(request: AdminProductChangeRequest) {
+	async function createPmWorkItem(request: AdminProductChangeRequest, labelMappingIds: string[], options: { forceNew?: boolean } = {}) {
 		setPendingPmAction(`create-${request.id}`);
 		setMessage(null);
 		setError(null);
 
 		try {
-			const data = await client.admin.pmIntegrations.createWorkItem({ requestId: request.id });
+			const data = await client.admin.pmIntegrations.createWorkItem({ requestId: request.id, labelMappingIds, forceNew: options.forceNew });
 			setPmLinks((links) => replacePmLink(links, data.link));
 			const warningText = data.warnings.length > 0 ? ` ${data.warnings.length} attachment warning${data.warnings.length === 1 ? "" : "s"}.` : "";
-			setMessage(`Trello card created.${warningText}`);
+			setMessage(`${options.forceNew ? "New Trello card created." : "Trello card created."}${warningText}`);
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not create Trello card.");
+		} finally {
+			setPendingPmAction(null);
+		}
+	}
+
+	async function detachPmWorkItem(link: AdminProductChangeRequestPmLink) {
+		setPendingPmAction(`detach-${link.id}`);
+		setMessage(null);
+		setError(null);
+
+		try {
+			await client.admin.pmIntegrations.detachWorkItem({ pmLinkId: link.id });
+			setPmLinks((links) => removePmLink(links, link.id));
+			setMessage("Trello card detached. The Trello card was not deleted.");
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not detach Trello card.");
 		} finally {
 			setPendingPmAction(null);
 		}
@@ -206,8 +230,14 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 
 		try {
 			const data = await client.admin.pmIntegrations.syncWorkItem({ pmLinkId: link.id });
-			setPmLinks((links) => replacePmLink(links, data.link));
-			setMessage("Trello card synced.");
+			if (data.detached || !data.link) {
+				setPmLinks((links) => removePmLink(links, link.id));
+				setMessage("Trello card was missing, so this request was detached.");
+			} else {
+				const syncedLink = data.link;
+				setPmLinks((links) => replacePmLink(links, syncedLink));
+				setMessage("Trello card synced.");
+			}
 			await loadRequests({ showLoading: false });
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not sync Trello card.");
@@ -309,7 +339,7 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 			{!isLoading && sortedRequests.length > 0 && filteredRequests.length === 0 ? <AdminEmptyState>No requests match the current filters.</AdminEmptyState> : null}
 
 			{!isLoading && filteredRequests.length > 0 ? (
-				<div className="grid min-h-[38rem] lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(22rem,1fr)_15rem]">
+				<div className="grid min-h-[38rem] lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(34rem,1fr)_18rem] 2xl:grid-cols-[20rem_minmax(42rem,1fr)_20rem]">
 					<RequestInbox
 						requests={filteredRequests}
 						selectedRequestId={selectedRequest?.id ?? null}
@@ -321,9 +351,11 @@ export function ProductChangeRequestsPanel({ client, product }: ProductChangeReq
 
 					<RequestDetail
 						pmConfig={pmConfig}
+						pmLabelMappings={pmLabelMappings}
 						pmLink={selectedPmLink}
 						onCreatePmWorkItem={createPmWorkItem}
 						onDelete={deleteRequest}
+						onDetachPmWorkItem={detachPmWorkItem}
 						onSyncPmWorkItem={syncPmWorkItem}
 						onUpdateStatus={updateStatus}
 						pendingPmAction={pendingPmAction}
@@ -403,9 +435,11 @@ function RequestInbox({
 
 function RequestDetail({
 	pmConfig,
+	pmLabelMappings,
 	pmLink,
 	onCreatePmWorkItem,
 	onDelete,
+	onDetachPmWorkItem,
 	onSyncPmWorkItem,
 	onUpdateStatus,
 	pendingPmAction,
@@ -414,9 +448,11 @@ function RequestDetail({
 	revision,
 }: {
 	pmConfig: AdminPmIntegrationConfig | null;
+	pmLabelMappings: AdminPmIntegrationLabelMapping[];
 	pmLink: AdminProductChangeRequestPmLink | null;
-	onCreatePmWorkItem: (request: AdminProductChangeRequest) => Promise<void>;
+	onCreatePmWorkItem: (request: AdminProductChangeRequest, labelMappingIds: string[], options?: { forceNew?: boolean }) => Promise<void>;
 	onDelete: (request: AdminProductChangeRequest) => Promise<void>;
+	onDetachPmWorkItem: (link: AdminProductChangeRequestPmLink) => Promise<void>;
 	onSyncPmWorkItem: (link: AdminProductChangeRequestPmLink) => Promise<void>;
 	onUpdateStatus: (request: AdminProductChangeRequest, status: AdminProductChangeRequestStatus) => Promise<void>;
 	pendingPmAction: string | null;
@@ -432,7 +468,7 @@ function RequestDetail({
 
 	return (
 		<div className="grid content-start gap-4 border-b border-border p-4 lg:border-b-0">
-			<div className="flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
+			<div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-start">
 				<div className="min-w-0">
 					<div className="flex flex-wrap gap-2">
 						<span className={adminBadgeClass({ tone: revision.type === "issue" ? "muted" : "active" })}>{formatRequestType(revision.type)}</span>
@@ -443,7 +479,7 @@ function RequestDetail({
 					<h3 className="mt-3 text-xl font-semibold leading-tight text-foreground">{revision.title || revision.description}</h3>
 					<p className="admin-code mt-2 truncate" title={revision.id}>{revision.id}</p>
 				</div>
-				<div className="grid max-w-sm gap-2 sm:grid-cols-[minmax(0,1fr)_9rem] 2xl:shrink-0">
+				<div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem]">
 					<label className="grid gap-1 text-sm">
 						<span className="admin-label">Status</span>
 						<select
@@ -487,10 +523,13 @@ function RequestDetail({
 
 			<TrelloWorkItemPanel
 				config={pmConfig}
+				labelMappings={pmLabelMappings}
 				link={pmLink}
-				onCreate={() => void onCreatePmWorkItem(request)}
+				onCreate={(labelMappingIds, options) => void onCreatePmWorkItem(request, labelMappingIds, options)}
+				onDetach={() => pmLink ? void onDetachPmWorkItem(pmLink) : undefined}
 				onSync={() => pmLink ? void onSyncPmWorkItem(pmLink) : undefined}
 				isCreating={pendingPmAction === `create-${request.id}`}
+				isDetaching={pmLink ? pendingPmAction === `detach-${pmLink.id}` : false}
 				isSyncing={pmLink ? pendingPmAction === `sync-${pmLink.id}` : false}
 			/>
 		</div>
@@ -500,18 +539,29 @@ function RequestDetail({
 function TrelloWorkItemPanel({
 	config,
 	isCreating,
+	isDetaching,
 	isSyncing,
+	labelMappings,
 	link,
 	onCreate,
+	onDetach,
 	onSync,
 }: {
 	config: AdminPmIntegrationConfig | null;
 	isCreating: boolean;
+	isDetaching: boolean;
 	isSyncing: boolean;
+	labelMappings: AdminPmIntegrationLabelMapping[];
 	link: AdminProductChangeRequestPmLink | null;
-	onCreate: () => void;
+	onCreate: (labelMappingIds: string[], options?: { forceNew?: boolean }) => void;
+	onDetach: () => void;
 	onSync: () => void;
 }) {
+	const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
+	useEffect(() => {
+		setSelectedLabelIds(link?.labels.flatMap((label) => label.label_mapping_id ? [label.label_mapping_id] : []) ?? []);
+	}, [link?.id, link?.labels]);
+
 	return (
 		<div className="grid gap-3 rounded-md border border-border bg-background p-4">
 			<div className="flex min-w-0 items-center justify-between gap-3">
@@ -529,6 +579,41 @@ function TrelloWorkItemPanel({
 					<RequestMeta label="Last sync" value={link.last_synced_at ? formatDateTime(link.last_synced_at) : "Not synced"} />
 					<RequestMeta label="Attachment sync" value={formatAttachmentSync(link)} />
 					<RequestMeta label="Card ID" value={link.provider_card_id} />
+				</div>
+			) : null}
+			{link && link.labels.length > 0 ? (
+				<div className="flex flex-wrap gap-2">
+					{link.labels.map((label) => (
+						<span className={adminBadgeClass({ tone: "active", size: "compact" })} key={label.id}>{label.display_name}</span>
+					))}
+				</div>
+			) : null}
+			{config?.enabled && labelMappings.length > 0 ? (
+				<div className="grid gap-2 rounded-md border border-border bg-card p-3">
+					<p className="admin-label">Trello labels</p>
+					<div className="flex flex-wrap gap-2">
+						{labelMappings.map((label) => {
+							const isSelected = selectedLabelIds.includes(label.id);
+							return (
+								<label
+									className={`inline-flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1 text-xs font-medium ${isSelected ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}
+									key={label.id}
+								>
+									<input
+										type="checkbox"
+										className="size-3.5"
+										checked={isSelected}
+										onChange={(event) => {
+											setSelectedLabelIds((current) => event.target.checked
+												? [...current, label.id]
+												: current.filter((id) => id !== label.id));
+										}}
+									/>
+									{label.display_name}
+								</label>
+							);
+						})}
+					</div>
 				</div>
 			) : null}
 			<div className="flex flex-wrap items-center gap-2">
@@ -552,12 +637,30 @@ function TrelloWorkItemPanel({
 							<RefreshCw className="size-4" aria-hidden="true" />
 							Sync now
 						</button>
+						<button
+							type="button"
+							className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+							onClick={onDetach}
+							disabled={isDetaching}
+						>
+							<Unlink className="size-4" aria-hidden="true" />
+							Detach
+						</button>
+						<button
+							type="button"
+							className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+							onClick={() => onCreate(selectedLabelIds, { forceNew: true })}
+							disabled={!config?.enabled || isCreating}
+						>
+							<Send className="size-4" aria-hidden="true" />
+							Create new card
+						</button>
 					</>
 				) : (
 					<button
 						type="button"
 						className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-						onClick={onCreate}
+						onClick={() => onCreate(selectedLabelIds)}
 						disabled={!config?.enabled || isCreating}
 					>
 						<Send className="size-4" aria-hidden="true" />
@@ -870,9 +973,13 @@ function formatAttachmentSync(link: AdminProductChangeRequestPmLink) {
 }
 
 function replacePmLink(links: AdminProductChangeRequestPmLink[], next: AdminProductChangeRequestPmLink) {
-	const existingIndex = links.findIndex((link) => link.id === next.id);
+	const existingIndex = links.findIndex((link) => link.id === next.id || link.request_thread_id === next.request_thread_id);
 	if (existingIndex === -1) return [next, ...links];
 	return links.map((link, index) => index === existingIndex ? next : link);
+}
+
+function removePmLink(links: AdminProductChangeRequestPmLink[], pmLinkId: string) {
+	return links.filter((link) => link.id !== pmLinkId);
 }
 
 function formatDateTime(value: string) {

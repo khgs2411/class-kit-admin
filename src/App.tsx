@@ -178,7 +178,7 @@ export function App() {
 					/>
 
 					<section className="min-w-0 overflow-hidden border-r border-border">
-						<div className="mx-auto grid h-full max-w-[64rem] grid-rows-[auto_minmax(0,1fr)] gap-4 p-5">
+						<div className="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-4 p-5">
 							<AdminAuthPanel client={classKitClient} session={session} error={status === "error" || status === "forbidden" ? error : null} supabaseTarget={supabaseTarget} onSignedIn={refreshSessionAndProducts} />
 
 							<div className="min-h-0 overflow-hidden">

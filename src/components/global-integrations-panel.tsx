@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AdminPmConnectionTestResult, AdminPmIntegrationConfig, AdminPmIntegrationConfigInput, ClassKitClient } from "@class-kit/react";
-import { Link2, RefreshCw, Save, Settings2 } from "lucide-react";
+import { Link2, Plus, RefreshCw, Save, Settings2, Trash2 } from "lucide-react";
 import { adminBadgeClass } from "./admin-badge";
 import { AdminPanelMessage } from "./admin-feedback";
 
@@ -24,7 +24,7 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 		try {
 			const data = await client.admin.pmIntegrations.getConfig();
 			setConfig(data.config);
-			setForm(configToForm(data.config));
+			setForm(configToForm(data.config, data.label_mappings));
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not load Trello integration config.");
 		} finally {
@@ -44,7 +44,7 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 		try {
 			const data = await client.admin.pmIntegrations.updateConfig(form);
 			setConfig(data.config);
-			setForm(configToForm(data.config));
+			setForm(configToForm(data.config, data.label_mappings));
 			setMessage("Trello integration config saved.");
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not save Trello integration config.");
@@ -91,7 +91,7 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 		<section className="rounded-md border border-border bg-card">
 			<div className="flex min-w-0 items-start justify-between gap-4 border-b border-border p-5">
 				<div className="min-w-0">
-					<p className="admin-label">Global settings</p>
+					<p className="admin-label">Integrations</p>
 					<h2 className="mt-1 text-xl font-semibold text-foreground">Trello</h2>
 					<p className="admin-meta mt-1">Connect ClassKit request handling to a global Trello board.</p>
 				</div>
@@ -135,6 +135,56 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 						<TrelloField label="In progress list ID" value={form.inProgressListId} onChange={(inProgressListId) => setForm({ ...form, inProgressListId })} />
 						<TrelloField label="Blocked list ID" value={form.blockedListId} onChange={(blockedListId) => setForm({ ...form, blockedListId })} />
 						<TrelloField label="Done list ID" value={form.doneListId} onChange={(doneListId) => setForm({ ...form, doneListId })} />
+					</div>
+				</div>
+
+				<div className="grid gap-3 rounded-md border border-border bg-background p-4">
+					<div className="flex items-start justify-between gap-3">
+						<div>
+							<h3 className="admin-panel-title">Label mapping</h3>
+							<p className="admin-meta mt-1">Map Trello label IDs to the names shown when creating cards from ClassKit requests.</p>
+						</div>
+						<button
+							type="button"
+							className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-primary hover:text-foreground"
+							onClick={() => setForm({ ...form, labelMappings: [...(form.labelMappings ?? []), { providerLabelId: "", displayName: "" }] })}
+						>
+							<Plus className="size-4" aria-hidden="true" />
+							Add label
+						</button>
+					</div>
+					{(form.labelMappings ?? []).length === 0 ? (
+						<p className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">No Trello labels mapped yet.</p>
+					) : null}
+					<div className="grid gap-2">
+						{(form.labelMappings ?? []).map((label, index) => (
+							<div className="grid gap-3 rounded-md border border-border bg-card p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" key={index}>
+								<TrelloField
+									label="Display name"
+									value={label.displayName}
+									onChange={(displayName) => setForm({
+										...form,
+										labelMappings: replaceLabelAt(form.labelMappings ?? [], index, { ...label, displayName }),
+									})}
+								/>
+								<TrelloField
+									label="Trello label ID"
+									value={label.providerLabelId}
+									onChange={(providerLabelId) => setForm({
+										...form,
+										labelMappings: replaceLabelAt(form.labelMappings ?? [], index, { ...label, providerLabelId }),
+									})}
+								/>
+								<button
+									type="button"
+									className="mt-5 inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-destructive hover:text-destructive"
+									onClick={() => setForm({ ...form, labelMappings: (form.labelMappings ?? []).filter((_, rowIndex) => rowIndex !== index) })}
+								>
+									<Trash2 className="size-4" aria-hidden="true" />
+									Remove
+								</button>
+							</div>
+						))}
 					</div>
 				</div>
 
@@ -199,10 +249,11 @@ function emptyTrelloConfigForm(): TrelloConfigForm {
 		inProgressListId: "",
 		blockedListId: "",
 		doneListId: "",
+		labelMappings: [],
 	};
 }
 
-function configToForm(config: AdminPmIntegrationConfig | null): TrelloConfigForm {
+function configToForm(config: AdminPmIntegrationConfig | null, labelMappings: Array<{ provider_label_id: string; display_name: string }> = []): TrelloConfigForm {
 	if (!config) return emptyTrelloConfigForm();
 	return {
 		enabled: config.enabled,
@@ -211,7 +262,15 @@ function configToForm(config: AdminPmIntegrationConfig | null): TrelloConfigForm
 		inProgressListId: config.in_progress_list_id,
 		blockedListId: config.blocked_list_id,
 		doneListId: config.done_list_id,
+		labelMappings: labelMappings.map((label) => ({
+			providerLabelId: label.provider_label_id,
+			displayName: label.display_name,
+		})),
 	};
+}
+
+function replaceLabelAt<T>(labels: T[], index: number, label: T) {
+	return labels.map((current, currentIndex) => currentIndex === index ? label : current);
 }
 
 function formatTrelloTestResult(result: AdminPmConnectionTestResult) {
