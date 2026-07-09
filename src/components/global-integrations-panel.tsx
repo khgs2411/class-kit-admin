@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AdminPmConnectionTestResult, AdminPmIntegrationConfig, AdminPmIntegrationConfigInput, ClassKitClient } from "@class-kit/react";
+import type { AdminPmBoardSnapshotRow, AdminPmConnectionTestResult, AdminPmIntegrationConfig, AdminPmIntegrationConfigInput, ClassKitClient } from "@class-kit/react";
 import { Link2, Plus, RefreshCw, Save, Settings2, Trash2 } from "lucide-react";
 import { adminBadgeClass } from "./admin-badge";
 import { AdminPanelMessage } from "./admin-feedback";
@@ -14,7 +14,8 @@ type GlobalIntegrationsPanelProps = {
 export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegrationsPanelProps) {
 	const [config, setConfig] = useState<AdminPmIntegrationConfig | null>(null);
 	const [form, setForm] = useState<TrelloConfigForm>(emptyTrelloConfigForm());
-	const [pendingAction, setPendingAction] = useState<"load" | "save" | "test" | "sync" | null>("load");
+	const [boardSnapshot, setBoardSnapshot] = useState<AdminPmBoardSnapshotRow | null>(null);
+	const [pendingAction, setPendingAction] = useState<"load" | "save" | "test" | "sync" | "sync-board" | null>("load");
 	const [message, setMessage] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +26,12 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 			const data = await client.admin.pmIntegrations.getConfig();
 			setConfig(data.config);
 			setForm(configToForm(data.config, data.label_mappings));
+			if (data.config) {
+				const snapshot = await client.admin.pmIntegrations.getBoardSnapshot({ boardId: data.config.board_id });
+				setBoardSnapshot(snapshot.snapshot);
+			} else {
+				setBoardSnapshot(null);
+			}
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not load Trello integration config.");
 		} finally {
@@ -68,6 +75,28 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 		}
 	}
 
+	async function syncBoardData() {
+		const boardId = form.boardId.trim();
+		if (!boardId) {
+			setError("Board ID is required before syncing Trello board data.");
+			return;
+		}
+
+		setPendingAction("sync-board");
+		setMessage(null);
+		setError(null);
+
+		try {
+			const data = await client.admin.pmIntegrations.syncBoardSnapshot({ boardId });
+			setBoardSnapshot(data.snapshot);
+			setMessage(`Synced Trello board data for ${data.snapshot.snapshot.name}.`);
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not sync Trello board data.");
+		} finally {
+			setPendingAction(null);
+		}
+	}
+
 	async function syncLinkedCards() {
 		setPendingAction("sync");
 		setMessage(null);
@@ -86,6 +115,7 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 	const isBusy = pendingAction !== null;
 	const credentialsMissing = error ? isMissingTrelloCredentialsError(error) : false;
 	const status = getIntegrationStatus(config, credentialsMissing);
+	const activeSnapshot = boardSnapshot?.board_id === form.boardId.trim() ? boardSnapshot : null;
 
 	return (
 		<section className="rounded-md border border-border bg-card">
@@ -122,7 +152,23 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 							Enabled
 						</label>
 					</div>
-					<TrelloField label="Board ID" value={form.boardId} onChange={(boardId) => setForm({ ...form, boardId })} />
+					<div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+						<TrelloField label="Board ID" value={form.boardId} onChange={(boardId) => setForm({ ...form, boardId })} />
+						<button
+							type="button"
+							className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+							onClick={() => void syncBoardData()}
+							disabled={isBusy || !form.boardId.trim()}
+						>
+							<RefreshCw className="size-4" aria-hidden="true" />
+							Sync board data
+						</button>
+					</div>
+					{activeSnapshot ? (
+						<p className="admin-meta">
+							Using {activeSnapshot.snapshot.name} · {activeSnapshot.snapshot.lists.length} lists · {activeSnapshot.snapshot.labels.length} labels · synced {formatDateTime(activeSnapshot.synced_at)}
+						</p>
+					) : null}
 				</div>
 
 				<div className="grid gap-3 rounded-md border border-border bg-background p-4">
@@ -130,11 +176,11 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 						<h3 className="admin-panel-title">List mapping</h3>
 						<p className="admin-meta mt-1">New cards start in To do. Trello list movement updates ClassKit request status.</p>
 					</div>
-					<div className="grid gap-3 grid-cols-4">
-						<TrelloField label="To do list ID" value={form.todoListId} onChange={(todoListId) => setForm({ ...form, todoListId })} />
-						<TrelloField label="In progress list ID" value={form.inProgressListId} onChange={(inProgressListId) => setForm({ ...form, inProgressListId })} />
-						<TrelloField label="Blocked list ID" value={form.blockedListId} onChange={(blockedListId) => setForm({ ...form, blockedListId })} />
-						<TrelloField label="Done list ID" value={form.doneListId} onChange={(doneListId) => setForm({ ...form, doneListId })} />
+					<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+						<TrelloListField label="To do list" lists={activeSnapshot?.snapshot.lists ?? []} value={form.todoListId} onChange={(todoListId) => setForm({ ...form, todoListId })} />
+						<TrelloListField label="In progress list" lists={activeSnapshot?.snapshot.lists ?? []} value={form.inProgressListId} onChange={(inProgressListId) => setForm({ ...form, inProgressListId })} />
+						<TrelloListField label="Blocked list" lists={activeSnapshot?.snapshot.lists ?? []} value={form.blockedListId} onChange={(blockedListId) => setForm({ ...form, blockedListId })} />
+						<TrelloListField label="Done list" lists={activeSnapshot?.snapshot.lists ?? []} value={form.doneListId} onChange={(doneListId) => setForm({ ...form, doneListId })} />
 					</div>
 				</div>
 
@@ -142,7 +188,7 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 					<div className="flex items-start justify-between gap-3">
 						<div>
 							<h3 className="admin-panel-title">Label mapping</h3>
-							<p className="admin-meta mt-1">Map Trello label IDs to the names shown when creating cards from ClassKit requests.</p>
+							<p className="admin-meta mt-1">Choose synced Trello labels and name them for ClassKit card creation.</p>
 						</div>
 						<button
 							type="button"
@@ -167,13 +213,23 @@ export function GlobalIntegrationsPanel({ client, productKey }: GlobalIntegratio
 										labelMappings: replaceLabelAt(form.labelMappings ?? [], index, { ...label, displayName }),
 									})}
 								/>
-								<TrelloField
-									label="Trello label ID"
+								<TrelloLabelField
+									label="Trello label"
+									labels={activeSnapshot?.snapshot.labels ?? []}
 									value={label.providerLabelId}
-									onChange={(providerLabelId) => setForm({
-										...form,
-										labelMappings: replaceLabelAt(form.labelMappings ?? [], index, { ...label, providerLabelId }),
-									})}
+									onChange={(providerLabelId) => {
+										const selected = activeSnapshot?.snapshot.labels.find((snapshotLabel) => snapshotLabel.id === providerLabelId);
+										setForm({
+											...form,
+											labelMappings: replaceLabelAt(form.labelMappings ?? [], index, {
+												...label,
+												providerLabelId,
+												displayName: shouldReplaceLabelDisplayName(label, activeSnapshot)
+													? (selected?.name || label.displayName)
+													: label.displayName,
+											}),
+										});
+									}}
 								/>
 								<button
 									type="button"
@@ -241,6 +297,74 @@ function TrelloField({ label, onChange, value }: { label: string; onChange: (val
 	);
 }
 
+function TrelloListField({
+	label,
+	lists,
+	onChange,
+	value,
+}: {
+	label: string;
+	lists: AdminPmBoardSnapshotRow["snapshot"]["lists"];
+	onChange: (value: string) => void;
+	value: string;
+}) {
+	if (lists.length === 0) {
+		return <TrelloField label={`${label} ID`} value={value} onChange={onChange} />;
+	}
+
+	return (
+		<label className="grid min-w-0 gap-1">
+			<span className="admin-label">{label}</span>
+			<select
+				className="h-10 min-w-0 rounded-md border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary"
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+			>
+				<option value="">Choose a list</option>
+				{lists.map((list) => (
+					<option value={list.id} key={list.id}>
+						{list.name}{list.closed ? " (closed)" : ""}
+					</option>
+				))}
+			</select>
+		</label>
+	);
+}
+
+function TrelloLabelField({
+	label,
+	labels,
+	onChange,
+	value,
+}: {
+	label: string;
+	labels: AdminPmBoardSnapshotRow["snapshot"]["labels"];
+	onChange: (value: string) => void;
+	value: string;
+}) {
+	if (labels.length === 0) {
+		return <TrelloField label={`${label} ID`} value={value} onChange={onChange} />;
+	}
+
+	return (
+		<label className="grid min-w-0 gap-1">
+			<span className="admin-label">{label}</span>
+			<select
+				className="h-10 min-w-0 rounded-md border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary"
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+			>
+				<option value="">Choose a label</option>
+				{labels.map((trelloLabel) => (
+					<option value={trelloLabel.id} key={trelloLabel.id}>
+						{formatTrelloLabelOption(trelloLabel)}
+					</option>
+				))}
+			</select>
+		</label>
+	);
+}
+
 function emptyTrelloConfigForm(): TrelloConfigForm {
 	return {
 		enabled: false,
@@ -271,6 +395,17 @@ function configToForm(config: AdminPmIntegrationConfig | null, labelMappings: Ar
 
 function replaceLabelAt<T>(labels: T[], index: number, label: T) {
 	return labels.map((current, currentIndex) => currentIndex === index ? label : current);
+}
+
+function shouldReplaceLabelDisplayName(label: NonNullable<TrelloConfigForm["labelMappings"]>[number], snapshot: AdminPmBoardSnapshotRow | null) {
+	if (!label.displayName.trim()) return true;
+	const currentSnapshotLabel = snapshot?.snapshot.labels.find((trelloLabel) => trelloLabel.id === label.providerLabelId);
+	return Boolean(currentSnapshotLabel?.name && currentSnapshotLabel.name === label.displayName);
+}
+
+function formatTrelloLabelOption(label: AdminPmBoardSnapshotRow["snapshot"]["labels"][number]) {
+	const name = label.name.trim() || "Unnamed label";
+	return label.color ? `${name} · ${label.color}` : name;
 }
 
 function formatTrelloTestResult(result: AdminPmConnectionTestResult) {
