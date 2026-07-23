@@ -25,6 +25,7 @@ import { ProductAuthPolicyPanel } from "./components/product-auth-policy-panel";
 import { ProductAuthRedirectPanel } from "./components/product-auth-redirect-panel";
 import { ProductChangeRequestsPanel } from "./components/product-change-requests-panel";
 import { ProductCreateForm } from "./components/product-create-form";
+import { ProductCustomersPanel } from "./components/product-customers-panel";
 import { ProductList } from "./components/product-list";
 import { ProductOriginPanel } from "./components/product-origin-panel";
 import { ProductResetPanel } from "./components/product-reset-panel";
@@ -33,7 +34,7 @@ import { ProductUsersPanel } from "./components/product-users-panel";
 import { adminBadgeClass } from "./components/admin-badge";
 import { AdminEmptyState } from "./components/admin-feedback";
 
-type ProductSection = "overview" | "settings" | "roles" | "users" | "requests" | "deployments";
+type ProductSection = "overview" | "settings" | "roles" | "customers" | "users" | "requests" | "deployments";
 type PlatformSection = "products" | "integrations" | "audit";
 type ThemeMode = "light" | "dark";
 
@@ -430,6 +431,8 @@ function SelectedProductWorkspace({
 
 				{productSection === "roles" ? <ProductRolePanel client={client} product={product} /> : null}
 
+				{productSection === "customers" ? <ProductCustomersPanel product={product} /> : null}
+
 				{productSection === "users" ? (
 					<ProductUsersPanel client={client} product={product} currentUserId={currentUserId} refreshKey={refreshKey} />
 				) : null}
@@ -478,6 +481,7 @@ function ProductHeader({ activeSection, onSelectSection, product }: { activeSect
 				<ProductTab active={activeSection === "overview"} onClick={() => onSelectSection("overview")}>Overview</ProductTab>
 				<ProductTab active={activeSection === "settings"} onClick={() => onSelectSection("settings")}>Settings</ProductTab>
 				<ProductTab active={activeSection === "roles"} onClick={() => onSelectSection("roles")}>Roles & permissions</ProductTab>
+				<ProductTab active={activeSection === "customers"} onClick={() => onSelectSection("customers")}>Customers</ProductTab>
 				<ProductTab active={activeSection === "users"} onClick={() => onSelectSection("users")}>Users</ProductTab>
 				<ProductTab active={activeSection === "requests"} onClick={() => onSelectSection("requests")}>Requests</ProductTab>
 				<ProductTab active={activeSection === "deployments"} onClick={() => onSelectSection("deployments")}>Deployments</ProductTab>

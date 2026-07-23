@@ -5,7 +5,7 @@
     "": {
       "name": "class-kit-admin",
       "dependencies": {
-        "@class-kit/react": "git+ssh://git@github.com/khgs2411/class-kit-sdk.git#v0.1.18",
+        "@class-kit/react": "git+ssh://git@github.com/khgs2411/class-kit-sdk.git#v0.1.20",
         "@supabase/supabase-js": "^2.106.1",
         "@tailwindcss/vite": "^4.3.0",
         "@vitejs/plugin-react": "^6.0.1",
@@ -24,7 +24,7 @@
     },
   },
   "packages": {
-    "@class-kit/react": ["@class-kit/react@git+ssh://git@github.com/khgs2411/class-kit-sdk.git#18c2715395236c8e47255599f63da280d538136d", { "peerDependencies": { "@supabase/supabase-js": "^2.106.1", "react": "^19.2.6", "react-dom": "^19.2.6" } }, "18c2715395236c8e47255599f63da280d538136d"],
+    "@class-kit/react": ["@class-kit/react@git+ssh://git@github.com/khgs2411/class-kit-sdk.git#4281e7eb983b3473cd9a433d1ca52b67969c989e", { "peerDependencies": { "@supabase/supabase-js": "^2.106.1", "react": "^19.2.6", "react-dom": "^19.2.6" } }, "4281e7eb983b3473cd9a433d1ca52b67969c989e"],
 
     "@emnapi/core": ["@emnapi/core@1.11.1", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ=="],
 

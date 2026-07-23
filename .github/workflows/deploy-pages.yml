@@ -24,6 +24,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Verify remote ClassKit SDK source
+        run: |
+          node -e 'const source = require("./package.json").dependencies["@class-kit/react"]; if (!/^git\+ssh:\/\/git@github\.com\/khgs2411\/class-kit-sdk\.git#v\d+\.\d+\.\d+$/.test(source)) { console.error("ClassKit Admin must pin a remote SDK release. Run make sdk-remote from the ClassKit root before deploying."); process.exit(1); }'
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
